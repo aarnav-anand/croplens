@@ -578,12 +578,13 @@ def get_gemini_key():
         return None
 
 # =================================================================
-# HEADER — title on its own row, language toggle on the next row
+# HEADER — language toggle first, then header uses updated T
 # =================================================================
-st.markdown(f"## {T['app_title']}")
-st.caption(f"{T['app_subtitle']}  ·  {T['tagline']}")
 
-# Language toggle sits on its own dedicated row — never clipped
+# T must be set before anything renders — initialise from session state
+T = TEXT[st.session_state.lang]
+
+# Language toggle on its own row so it is never clipped
 choice = st.radio(
     "🌐 Language / भाषा",
     options=["en", "hi"],
@@ -592,9 +593,12 @@ choice = st.radio(
     index=0 if st.session_state.lang == "en" else 1,
     key="lang_selector",
 )
+# Update both session state and T immediately after the widget
 st.session_state.lang = choice
 T = TEXT[st.session_state.lang]
 
+st.markdown(f"## {T['app_title']}")
+st.caption(f"{T['app_subtitle']}  ·  {T['tagline']}")
 st.divider()
 
 # =================================================================
@@ -936,5 +940,5 @@ if st.session_state.get("show_report") and st.session_state.last_diagnosis:
                         st.rerun()
                     except Exception as ex:
                         st.error(f"{T['report_error']} ({ex})")
-
+#ok endindg 
     report_dialog()
