@@ -555,21 +555,38 @@ def gemini_ask_disease_name(pil_image: Image.Image, gemini_key: str):
     except Exception:
         return None
 
-def gemini_ask_treatment(disease_name: str, gemini_key: str, lang: str):
+def gemini_ask_treatment_both(disease_name: str, gemini_key: str):
+    """Fetch treatment advice in BOTH English and Hindi in one API call."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={gemini_key}"
-    if lang == "hi":
-        prompt = f"'{disease_name}' नामक फसल रोग के लिए 3-4 बुलेट पॉइंट में उपचार सलाह दें। हर पॉइंट '- ' से शुरू करें। केवल हिंदी में।"
-    else:
-        prompt = f"Give 3-4 bullet point treatment advice for the crop disease '{disease_name}'. Each bullet starts with '- '. English only."
+    prompt = (
+        f"For the crop disease \'{disease_name}\', give treatment advice as 3-4 bullet points.\n"
+        f"Return EXACTLY this format and nothing else:\n\n"
+        f"ENGLISH:\n- point 1\n- point 2\n- point 3\n\n"
+        f"HINDI:\n- point 1 in Hindi\n- point 2 in Hindi\n- point 3 in Hindi"
+    )
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     try:
         resp = requests.post(url, json=payload, timeout=30)
         resp.raise_for_status()
         text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-        points = [ln.lstrip("- •*").strip() for ln in text.splitlines() if ln.strip() and ln.strip()[0] in "-•*"]
-        return points if points else [text]
+        en_points, hi_points = [], []
+        current = None
+        for line in text.splitlines():
+            l = line.strip()
+            if l.upper().startswith("ENGLISH"):
+                current = "en"
+            elif l.upper().startswith("HINDI"):
+                current = "hi"
+            elif l and l[0] in "-*":
+                clean = l.lstrip("-* ").strip()
+                if clean:
+                    if current == "en":
+                        en_points.append(clean)
+                    elif current == "hi":
+                        hi_points.append(clean)
+        return (en_points or None, hi_points or None)
     except Exception:
-        return None
+        return None, None
 
 def get_gemini_key():
     try:
@@ -761,7 +778,7 @@ if image_bytes_final:
             if new_c is not None:
                 st.session_state.farmer_credits = new_c  # reflected in header on this same run
 
-        # Gemini fallback
+        # AI fallback for low confidence — fetch BOTH languages at once
         gemini_disease = None
         gemini_treatment_en = None
         gemini_treatment_hi = None
@@ -769,13 +786,10 @@ if image_bytes_final:
         if confidence < 80:
             gkey = get_gemini_key()
             if gkey:
-                with st.spinner(T["gemini_analyzing"]):
+                with st.spinner(T["diagnosing"]):
                     gemini_disease = gemini_ask_disease_name(image, gkey)
-                    # FIX 6 & 7: fetch treatment for ALL non-null results,
-                    # including "Healthy" — don't skip based on disease name
                     if gemini_disease:
-                        gemini_treatment_en = gemini_ask_treatment(gemini_disease, gkey, "en")
-                        gemini_treatment_hi = gemini_ask_treatment(gemini_disease, gkey, "hi")
+                        gemini_treatment_en, gemini_treatment_hi = gemini_ask_treatment_both(gemini_disease, gkey)
 
         st.session_state.last_diagnosis = {
             "raw_class": raw_class, "crop": crop_name,
@@ -790,6 +804,8 @@ if image_bytes_final:
             st.session_state.credits_exhausted = True
 
     # ---- Display diagnosis ----
+    # NOTE: reading from session state means language switching re-renders
+    # the correct language without re-running inference or decrementing credits
     diag = st.session_state.last_diagnosis
     if diag:
         confidence  = diag["confidence"]
@@ -797,46 +813,39 @@ if image_bytes_final:
         disease_name= diag["disease"]
         info        = diag["info"]
         lang        = st.session_state.lang
+        gd          = st.session_state.gemini_disease
+        ai_assisted = confidence < 80 and gd is not None
 
         st.subheader(T["diagnosis_title"])
 
-        # FIX 6: if low-confidence and Gemini returned a name, show THAT as the headline
-        gd = st.session_state.gemini_disease
-        if confidence < 80 and gd and gd.lower() not in ("unknown",):
+        # Headline: use AI disease name if available, else model class
+        if ai_assisted and gd.lower() not in ("unknown",):
             headline = gd
         else:
             headline = f"{crop_name} — {disease_name}" if disease_name else crop_name
 
         st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
-        st.progress(min(int(confidence), 100), text=f"{T['confidence_label']}: {confidence:.1f}%")
 
-        if confidence < 80:
-            st.markdown(f'<div class="cl-card-warn">⚠️ {T["low_confidence_warning"]}</div>', unsafe_allow_html=True)
+        # Only show confidence bar for high-confidence model results
+        if not ai_assisted:
+            st.progress(min(int(confidence), 100), text=f"{T['confidence_label']}: {confidence:.1f}%")
 
-            # FIX 7: Always show Gemini section when low-confidence
-            st.markdown(
-                f"#### {T['ai_diagnosed_label']} "
-                f"<span class='cl-gemini-badge'>Gemini AI</span>",
-                unsafe_allow_html=True
-            )
-
-            if gd:
-                st.markdown(f"**{gd}**")
-            else:
-                st.info(T["ai_no_result"])
-
-            st.markdown(f"#### {T['gemini_treatment_label']}")
+        if ai_assisted:
+            # AI-assisted path: no Gemini branding, no confidence warning
+            st.markdown(f"### {T['treatment_title']}")
             points = st.session_state.gemini_treatment_hi if lang == "hi" else st.session_state.gemini_treatment_en
-
             if points:
                 for pt in points:
                     if pt.strip():
                         st.markdown(f'<div class="cl-treatment-box">• {pt}</div>', unsafe_allow_html=True)
             else:
                 st.info(T["gemini_no_treatment"])
-
+        elif confidence < 80:
+            # Low confidence but no AI result either
+            st.markdown(f'<div class="cl-card-warn">⚠️ {T["low_confidence_warning"]}</div>', unsafe_allow_html=True)
+            st.info(T["ai_no_result"])
         else:
-            # Standard knowledge-base treatment (confidence ≥ 80%)
+            # High-confidence: show knowledge-base treatment
             st.markdown(f"### {T['treatment_title']}")
             for key, label in [
                 ("severity_", T["severity_label"]),
@@ -866,9 +875,38 @@ if st.session_state.get("show_report") and st.session_state.last_diagnosis:
     def report_dialog():
         diagnosis = st.session_state.last_diagnosis
         st.write(T["report_instructions"])
-        st.button(T["locate_me"], help=T["locate_me_help"])
 
-        m = folium.Map(location=[20.5937, 78.9629], zoom_start=5, tiles="OpenStreetMap")
+        # Locate Me — asks browser for GPS, stores in session state via URL param trick
+        loc_lat = st.session_state.get("locate_lat")
+        loc_lng = st.session_state.get("locate_lng")
+
+        # JS geolocation injected as an HTML component
+        st.components.v1.html("""
+        <button onclick="
+            navigator.geolocation.getCurrentPosition(function(pos){
+                var lat = pos.coords.latitude;
+                var lng = pos.coords.longitude;
+                window.parent.postMessage({type:'streamlit:setComponentValue', value: lat+'|'+lng}, '*');
+            }, function(err){ alert('Could not get location: ' + err.message); });
+        " style="background:#22c55e;color:white;border:none;border-radius:8px;
+                 padding:0.6em 1.2em;font-size:0.95em;font-weight:600;cursor:pointer;width:100%;">
+            📍 """ + T["locate_me"] + """
+        </button>
+        """, height=50)
+
+        # Map center: use located coords if available, else India centroid
+        map_center = [loc_lat, loc_lng] if loc_lat and loc_lng else [20.5937, 78.9629]
+        map_zoom   = 14 if loc_lat else 5
+
+        m = folium.Map(location=map_center, zoom_start=map_zoom, tiles="OpenStreetMap")
+
+        if loc_lat and loc_lng:
+            folium.Marker(
+                [loc_lat, loc_lng],
+                popup="Your location",
+                icon=folium.Icon(color="green", icon="user"),
+            ).add_to(m)
+
         Draw(
             export=False,
             draw_options={"polygon": True, "polyline": False, "rectangle": True,
@@ -876,7 +914,7 @@ if st.session_state.get("show_report") and st.session_state.last_diagnosis:
             edit_options={"edit": True, "remove": True},
         ).add_to(m)
 
-        map_data = st_folium(m, height=350, use_container_width=True, key="report_map",
+        map_data = st_folium(m, height=380, use_container_width=True, key="report_map",
                              returned_objects=["all_drawings", "last_active_drawing"])
         st.caption(T["map_caption"])
 
@@ -940,5 +978,5 @@ if st.session_state.get("show_report") and st.session_state.last_diagnosis:
                         st.rerun()
                     except Exception as ex:
                         st.error(f"{T['report_error']} ({ex})")
-#ok endindg 
+
     report_dialog()
