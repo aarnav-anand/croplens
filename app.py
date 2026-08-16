@@ -546,7 +546,7 @@ def gemini_ask_disease_name(pil_image: Image.Image, gemini_key: str):
     b64 = image_to_base64(pil_image)
     payload = {"contents": [{"parts": [
         {"inlineData": {"mimeType": "image/jpeg", "data": b64}},
-        {"text": "Look at this plant leaf image. What plant disease do you see? Reply with ONLY the disease name, nothing else. If healthy, reply 'Healthy'. If unknown, reply 'Unknown'."}
+        {"text": "Look at this image. First, check if this is a plant leaf. If it is NOT a leaf image, reply with exactly: Not a leaf image. If it IS a leaf, reply with ONLY the disease name (nothing else). If the leaf looks healthy, reply: Healthy. If you cannot determine the disease, reply: Unknown."}
     ]}]}
     try:
         resp = requests.post(url, json=payload, timeout=30)
@@ -783,12 +783,14 @@ if image_bytes_final:
         gemini_treatment_en = None
         gemini_treatment_hi = None
 
+        NOT_A_LEAF = "not a leaf image"
         if confidence < 80:
             gkey = get_gemini_key()
             if gkey:
                 with st.spinner(T["diagnosing"]):
                     gemini_disease = gemini_ask_disease_name(image, gkey)
-                    if gemini_disease:
+                    # Only fetch treatment if it IS a leaf with a real disease
+                    if gemini_disease and gemini_disease.lower() not in (NOT_A_LEAF, "unknown", "healthy"):
                         gemini_treatment_en, gemini_treatment_hi = gemini_ask_treatment_both(gemini_disease, gkey)
 
         st.session_state.last_diagnosis = {
@@ -816,51 +818,62 @@ if image_bytes_final:
         gd          = st.session_state.gemini_disease
         ai_assisted = confidence < 80 and gd is not None
 
+        NOT_A_LEAF = "not a leaf image"
+        is_not_leaf = (gd is not None and gd.lower() == NOT_A_LEAF)
+
         st.subheader(T["diagnosis_title"])
 
-        # Headline: use AI disease name if available, else model class
-        if ai_assisted and gd.lower() not in ("unknown",):
-            headline = gd
+        if is_not_leaf:
+            # Not a leaf — show message, no treatment, no report button
+            not_leaf_msg = "Not a leaf image" if lang == "en" else "यह पत्ती की फोटो नहीं है"
+            st.markdown(f'<div class="cl-disease-name">⚠️ {not_leaf_msg}</div>', unsafe_allow_html=True)
+            st.info("Please upload a clear photo of a plant leaf." if lang == "en"
+                    else "कृपया पौधे की पत्ती की स्पष्ट फोटो अपलोड करें।")
         else:
-            headline = f"{crop_name} — {disease_name}" if disease_name else crop_name
-
-        st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
-
-        # Only show confidence bar for high-confidence model results
-        if not ai_assisted:
-            st.progress(min(int(confidence), 100), text=f"{T['confidence_label']}: {confidence:.1f}%")
-
-        if ai_assisted:
-            # AI-assisted path: no Gemini branding, no confidence warning
-            st.markdown(f"### {T['treatment_title']}")
-            points = st.session_state.gemini_treatment_hi if lang == "hi" else st.session_state.gemini_treatment_en
-            if points:
-                for pt in points:
-                    if pt.strip():
-                        st.markdown(f'<div class="cl-treatment-box">• {pt}</div>', unsafe_allow_html=True)
+            # Headline: use AI disease name if available, else model class
+            if ai_assisted and gd.lower() not in ("unknown",):
+                headline = gd
             else:
-                st.info(T["gemini_no_treatment"])
-        elif confidence < 80:
-            # Low confidence but no AI result either
-            st.markdown(f'<div class="cl-card-warn">⚠️ {T["low_confidence_warning"]}</div>', unsafe_allow_html=True)
-            st.info(T["ai_no_result"])
-        else:
-            # High-confidence: show knowledge-base treatment
-            st.markdown(f"### {T['treatment_title']}")
-            for key, label in [
-                ("severity_", T["severity_label"]),
-                ("symptoms_", T["symptoms_label"]),
-                ("prevention_", T["prevention_label"]),
-                ("treatment_", T["treatment_label"]),
-            ]:
-                val = info.get(key + lang, info.get(key + "en", ""))
-                st.markdown(f'<div class="cl-treatment-box"><b>{label}:</b> {val}</div>', unsafe_allow_html=True)
+                headline = f"{crop_name} — {disease_name}" if disease_name else crop_name
 
-        st.markdown("")
-        st.button(
-            T["report_button"], key="open_report", type="secondary",
-            on_click=lambda: st.session_state.update(show_report=True),
-        )
+            st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
+
+            # Only show confidence bar for high-confidence model results
+            if not ai_assisted:
+                st.progress(min(int(confidence), 100), text=f"{T['confidence_label']}: {confidence:.1f}%")
+
+            if ai_assisted:
+                # AI-assisted path: no branding, no confidence warning
+                st.markdown(f"### {T['treatment_title']}")
+                points = st.session_state.gemini_treatment_hi if lang == "hi" else st.session_state.gemini_treatment_en
+                if points:
+                    for pt in points:
+                        if pt.strip():
+                            st.markdown(f'<div class="cl-treatment-box">• {pt}</div>', unsafe_allow_html=True)
+                else:
+                    st.info(T["gemini_no_treatment"])
+            elif confidence < 80:
+                # Low confidence but no AI result
+                st.markdown(f'<div class="cl-card-warn">⚠️ {T["low_confidence_warning"]}</div>', unsafe_allow_html=True)
+                st.info(T["ai_no_result"])
+            else:
+                # High-confidence: knowledge-base treatment
+                st.markdown(f"### {T['treatment_title']}")
+                for key, label in [
+                    ("severity_", T["severity_label"]),
+                    ("symptoms_", T["symptoms_label"]),
+                    ("prevention_", T["prevention_label"]),
+                    ("treatment_", T["treatment_label"]),
+                ]:
+                    val = info.get(key + lang, info.get(key + "en", ""))
+                    st.markdown(f'<div class="cl-treatment-box"><b>{label}:</b> {val}</div>', unsafe_allow_html=True)
+
+            st.markdown("")
+            st.button(
+                T["report_button"], key="open_report", type="secondary",
+                on_click=lambda: st.session_state.update(show_report=True),
+            )
+
         st.caption(T["disclaimer"])
 
     if st.session_state.credits_exhausted:
@@ -876,36 +889,8 @@ if st.session_state.get("show_report") and st.session_state.last_diagnosis:
         diagnosis = st.session_state.last_diagnosis
         st.write(T["report_instructions"])
 
-        # Locate Me — asks browser for GPS, stores in session state via URL param trick
-        loc_lat = st.session_state.get("locate_lat")
-        loc_lng = st.session_state.get("locate_lng")
-
-        # JS geolocation injected as an HTML component
-        st.components.v1.html("""
-        <button onclick="
-            navigator.geolocation.getCurrentPosition(function(pos){
-                var lat = pos.coords.latitude;
-                var lng = pos.coords.longitude;
-                window.parent.postMessage({type:'streamlit:setComponentValue', value: lat+'|'+lng}, '*');
-            }, function(err){ alert('Could not get location: ' + err.message); });
-        " style="background:#22c55e;color:white;border:none;border-radius:8px;
-                 padding:0.6em 1.2em;font-size:0.95em;font-weight:600;cursor:pointer;width:100%;">
-            📍 """ + T["locate_me"] + """
-        </button>
-        """, height=50)
-
-        # Map center: use located coords if available, else India centroid
-        map_center = [loc_lat, loc_lng] if loc_lat and loc_lng else [20.5937, 78.9629]
-        map_zoom   = 14 if loc_lat else 5
-
-        m = folium.Map(location=map_center, zoom_start=map_zoom, tiles="OpenStreetMap")
-
-        if loc_lat and loc_lng:
-            folium.Marker(
-                [loc_lat, loc_lng],
-                popup="Your location",
-                icon=folium.Icon(color="green", icon="user"),
-            ).add_to(m)
+        # Map centred on India; farmer draws polygon to mark their farm
+        m = folium.Map(location=[20.5937, 78.9629], zoom_start=5, tiles="OpenStreetMap")
 
         Draw(
             export=False,
