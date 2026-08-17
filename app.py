@@ -538,29 +538,22 @@ def image_to_base64(pil_image: Image.Image) -> str:
     pil_image.save(buf, format="JPEG", quality=85)
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
-def gemini_analyse(pil_image: Image.Image, gemini_key: str):
-    """Single Gemini call that does everything:
-    1. Checks if the image is a crop leaf.
-    2. If yes: diagnoses the disease (3-4 words) and returns
-       mandatory treatment advice in both English and Hindi.
-
-    Returns dict with keys:
-        is_leaf   : bool
-        disease   : str or None
-        en_points : list[str] or None
-        hi_points : list[str] or None
-        error     : str or None   (set when API call fails)
+def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = ""):
+    """Single Gemini call: leaf check + disease diagnosis + treatment in both languages.
+    crop_name is provided by the farmer before this call is made.
+    Returns dict: is_leaf, disease, en_points, hi_points, error.
     """
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"gemini-3.5-flash:generateContent?key={gemini_key}"
     )
     b64 = image_to_base64(pil_image)
+    crop_ctx = f"The farmer says this is a {crop_name} leaf. " if crop_name else ""
     prompt = (
-        "You are an expert plant pathologist and agricultural advisor.\n\n"
+        f"You are an expert plant pathologist and agricultural advisor.\n"
+        f"{crop_ctx}"
         "Look at this image and respond using EXACTLY the format below — "
         "no extra text, no markdown, no explanation outside the format.\n\n"
-        "STEP 1 — Is this a crop or plant leaf?\n"
         "IS_LEAF: YES or NO\n\n"
         "If IS_LEAF is NO, stop there. Write nothing else.\n\n"
         "If IS_LEAF is YES, continue:\n\n"
@@ -579,7 +572,7 @@ def gemini_analyse(pil_image: Image.Image, gemini_key: str):
         "RULES:\n"
         "- Disease name must be 2-4 words maximum.\n"
         "- All 4 treatment points are mandatory in both languages.\n"
-        "- If you are unsure, still give your best disease name based on visible symptoms.\n"
+        "- If unsure, commit to the most likely disease based on visible symptoms.\n"
         "- Do not add any text outside this format."
     )
     payload = {"contents": [{"parts": [
@@ -809,67 +802,93 @@ if image_bytes_final:
         st.stop()
     st.image(image, caption=T["uploaded_caption"], width=680)
 
+    # New image — reset all diagnosis state, wait for crop name
     if img_hash != st.session_state.last_image_hash:
         if st.session_state.farmer_credits is not None and st.session_state.farmer_credits <= 0:
             st.session_state.credits_exhausted = True
             st.rerun()
-
-        gkey = get_gemini_key()
-
-        # ── STEP 1: Single Gemini call — leaf check + diagnosis + treatment ──
-        ai = None
-        if gkey:
-            spin_msg = "Analysing your photo..." if st.session_state.lang == "en" else "फोटो का विश्लेषण हो रहा है..."
-            with st.spinner(spin_msg):
-                ai = gemini_analyse(image, gkey)
-
-        # ── STEP 2: Run TFLite only if Gemini says it IS a leaf ──
-        is_leaf     = ai["is_leaf"] if ai else True
-        ai_err      = ai["error"]   if ai else None
-        ai_disease  = ai["disease"] if ai else None
-        ai_en       = ai["en_points"] if ai else None
-        ai_hi       = ai["hi_points"] if ai else None
-
-        confidence, raw_class, crop_name_m, disease_name_m, info = 0, None, "", "", None
-        if is_leaf:
-            img_r = image.resize((IMG_SIZE, IMG_SIZE))
-            arr   = np.array(img_r).astype(np.float32) / 255.0
-            arr   = np.expand_dims(arr, 0)
-            interpreter.set_tensor(input_details[0]["index"], arr)
-            interpreter.invoke()
-            output      = interpreter.get_tensor(output_details[0]["index"])[0]
-            top_idx     = int(np.argmax(output))
-            confidence  = float(output[top_idx]) * 100
-            raw_class   = labels[top_idx]
-            crop_name_m, disease_name_m = format_class_name(raw_class)
-            info        = get_disease_info(raw_class)
-
-        # Decrement one credit per submission
-        if st.session_state.farmer_credits is not None and supabase is not None:
-            new_c = decrement_credits(st.session_state.farmer_dif, st.session_state.farmer_credits)
-            if new_c is not None:
-                st.session_state.farmer_credits = new_c
-
-        st.session_state.last_diagnosis = {
-            "is_leaf":    is_leaf,
-            "ai_err":     ai_err,
-            "confidence": confidence,
-            "raw_class":  raw_class,
-            "crop":       crop_name_m,
-            "disease":    disease_name_m,
-            "info":       info,
-        }
-        st.session_state.gemini_disease      = ai_disease
-        st.session_state.gemini_treatment_en = ai_en
-        st.session_state.gemini_treatment_hi = ai_hi
+        st.session_state.last_diagnosis      = None
+        st.session_state.gemini_disease      = None
+        st.session_state.gemini_treatment_en = None
+        st.session_state.gemini_treatment_hi = None
+        st.session_state.ai_crop_confirmed   = False
+        st.session_state.crop_input          = None
         st.session_state.last_image_hash     = img_hash
 
-        if st.session_state.farmer_credits is not None and st.session_state.farmer_credits <= 0:
-            st.session_state.credits_exhausted = True
+    # ── STEP 1: Ask crop name before doing anything ──
+    if not st.session_state.ai_crop_confirmed:
+        lang = st.session_state.lang
+        crop_label       = "Which crop is this leaf from?" if lang == "en" else "यह किस फसल की पत्ती है?"
+        crop_placeholder = "e.g. Tomato, Wheat, Rice..." if lang == "en" else "जैसे टमाटर, गेहूं, चावल..."
+        crop_btn         = "Analyse →" if lang == "en" else "विश्लेषण करें →"
+        st.info(crop_label)
+        crop_val = st.text_input(crop_label, placeholder=crop_placeholder,
+                                 label_visibility="collapsed", key="crop_name_input",
+                                 value=st.session_state.crop_input or "")
+        if st.button(crop_btn, type="primary", key="crop_submit"):
+            if crop_val.strip():
+                st.session_state.crop_input = crop_val.strip()
+                gkey = get_gemini_key()
 
-    # ── DISPLAY ──
-    diag = st.session_state.last_diagnosis
-    if diag is not None:
+                # ── STEP 2: Single Gemini call (leaf + disease + treatment) ──
+                ai = None
+                if gkey:
+                    spin_msg = "Analysing your photo..." if lang == "en" else "फोटो का विश्लेषण हो रहा है..."
+                    with st.spinner(spin_msg):
+                        ai = gemini_analyse(image, gkey, crop_val.strip())
+
+                is_leaf    = ai["is_leaf"]   if ai else True
+                ai_err     = ai["error"]     if ai else "No API key configured"
+                ai_disease = ai["disease"]   if ai else None
+                ai_en      = ai["en_points"] if ai else None
+                ai_hi      = ai["hi_points"] if ai else None
+
+                # ── STEP 3: Run TFLite only if it's a leaf ──
+                confidence, raw_class, crop_name_m, disease_name_m, info = 0, None, "", "", None
+                if is_leaf:
+                    img_r = image.resize((IMG_SIZE, IMG_SIZE))
+                    arr   = np.array(img_r).astype(np.float32) / 255.0
+                    arr   = np.expand_dims(arr, 0)
+                    interpreter.set_tensor(input_details[0]["index"], arr)
+                    interpreter.invoke()
+                    output     = interpreter.get_tensor(output_details[0]["index"])[0]
+                    top_idx    = int(np.argmax(output))
+                    confidence = float(output[top_idx]) * 100
+                    raw_class  = labels[top_idx]
+                    crop_name_m, disease_name_m = format_class_name(raw_class)
+                    info       = get_disease_info(raw_class)
+
+                # Decrement credit
+                if st.session_state.farmer_credits is not None and supabase is not None:
+                    new_c = decrement_credits(st.session_state.farmer_dif, st.session_state.farmer_credits)
+                    if new_c is not None:
+                        st.session_state.farmer_credits = new_c
+
+                st.session_state.last_diagnosis = {
+                    "is_leaf":    is_leaf,
+                    "ai_err":     ai_err,
+                    "confidence": confidence,
+                    "raw_class":  raw_class,
+                    "crop":       crop_name_m,
+                    "disease":    disease_name_m,
+                    "info":       info,
+                }
+                st.session_state.gemini_disease      = ai_disease
+                st.session_state.gemini_treatment_en = ai_en
+                st.session_state.gemini_treatment_hi = ai_hi
+                st.session_state.ai_crop_confirmed   = True
+
+                if st.session_state.farmer_credits is not None and st.session_state.farmer_credits <= 0:
+                    st.session_state.credits_exhausted = True
+
+                st.rerun()
+            else:
+                st.warning("Please enter the crop name." if st.session_state.lang == "en"
+                           else "कृपया फसल का नाम दर्ज करें।")
+
+    # ── DISPLAY (only after crop name submitted and analysis done) ──
+    elif st.session_state.last_diagnosis is not None:
+        diag        = st.session_state.last_diagnosis
         lang        = st.session_state.lang
         is_leaf     = diag.get("is_leaf", True)
         ai_err      = diag.get("ai_err")
@@ -895,7 +914,7 @@ if image_bytes_final:
             )
             st.caption(T["disclaimer"])
 
-        # ── HIGH CONFIDENCE ≥95%: use TFLite result ──
+        # ── HIGH CONFIDENCE ≥95%: TFLite result ──
         elif confidence >= CONFIDENCE_THRESHOLD:
             st.subheader(T["diagnosis_title"])
             headline = f"{crop_name_d} \u2014 {disease_name}" if disease_name else crop_name_d
@@ -917,7 +936,7 @@ if image_bytes_final:
                       on_click=lambda: st.session_state.update(show_report=True))
             st.caption(T["disclaimer"])
 
-        # ── LOW CONFIDENCE <95%: show Gemini result ──
+        # ── LOW CONFIDENCE <95%: Gemini result ──
         else:
             st.subheader(T["diagnosis_title"])
             headline = gd if (gd and gd.lower() not in ("unknown",)) else (
