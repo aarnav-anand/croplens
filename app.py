@@ -96,13 +96,7 @@ st.markdown("""
         padding: 0.8em 1em; margin: 0.4em 0;
         color: #166534;
     }
-    .cl-gemini-badge {
-        display:inline-block;
-        background: linear-gradient(90deg,#4285f4,#34a853);
-        color:white; border-radius: 8px;
-        padding: 0.1em 0.6em; font-size:0.75em; font-weight:700;
-        margin-left:6px; vertical-align: middle;
-    }
+
     .cl-instructions li { margin-bottom: 0.4em; line-height: 1.6em; }
 
     /* FIX 4 & 5: hide default camera widget, show only when toggled */
@@ -159,7 +153,7 @@ TEXT = {
         "confidence_label": "Confidence",
         "low_confidence_warning": "Low confidence — AI-assisted diagnosis shown below.",
         "ai_diagnosed_label": "AI-Identified Disease",
-        "ai_no_result": "Gemini could not identify the disease. Please retake the photo.",
+        "ai_no_result": "Could not identify the disease. Please retake the photo.",
         "treatment_title": "🩺 Treatment & Care Advice",
         "symptoms_label": "Symptoms",
         "prevention_label": "Prevention",
@@ -221,7 +215,7 @@ TEXT = {
         "confidence_label": "विश्वसनीयता",
         "low_confidence_warning": "कम विश्वसनीयता — एआई-सहायता प्राप्त निदान नीचे दिखाया गया है।",
         "ai_diagnosed_label": "एआई द्वारा पहचाना रोग",
-        "ai_no_result": "Gemini रोग की पहचान नहीं कर सका। फोटो दोबारा लें।",
+        "ai_no_result": "रोग की पहचान नहीं हो सकी। फोटो दोबारा लें।",
         "treatment_title": "🩺 उपचार और देखभाल",
         "symptoms_label": "लक्षण",
         "prevention_label": "रोकथाम",
@@ -471,8 +465,10 @@ defaults = {
     "gemini_treatment_en": None,
     "gemini_treatment_hi": None,
     "last_image_hash": None,
-    "show_camera": False,          # FIX 4: camera toggle
-    "pending_camera_img": None,    # FIX 5: holds captured frame awaiting submit
+    "show_camera": False,
+    "pending_camera_img": None,
+    "crop_input": None,            # crop name entered by user for low-confidence scans
+    "ai_crop_confirmed": False,    # True once user has submitted crop name
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -541,12 +537,19 @@ def image_to_base64(pil_image: Image.Image) -> str:
     pil_image.save(buf, format="JPEG", quality=85)
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
-def gemini_ask_disease_name(pil_image: Image.Image, gemini_key: str):
+def gemini_ask_disease_name(pil_image: Image.Image, gemini_key: str, crop_name: str):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={gemini_key}"
     b64 = image_to_base64(pil_image)
+    prompt = (
+        f"This is a photo of a {crop_name} leaf. "
+        f"Identify which disease is visible on this leaf. "
+        f"If this image does NOT appear to be a leaf of any crop at all, reply with exactly: Not a crop leaf. "
+        f"If the leaf looks healthy, reply: Healthy. "
+        f"Otherwise reply with ONLY the disease name, nothing else."
+    )
     payload = {"contents": [{"parts": [
         {"inlineData": {"mimeType": "image/jpeg", "data": b64}},
-        {"text": "Look at this image. First, check if this is a plant leaf. If it is NOT a leaf image, reply with exactly: Not a leaf image. If it IS a leaf, reply with ONLY the disease name (nothing else). If the leaf looks healthy, reply: Healthy. If you cannot determine the disease, reply: Unknown."}
+        {"text": prompt}
     ]}]}
     try:
         resp = requests.post(url, json=payload, timeout=30)
@@ -778,101 +781,105 @@ if image_bytes_final:
             if new_c is not None:
                 st.session_state.farmer_credits = new_c  # reflected in header on this same run
 
-        # AI fallback for low confidence — fetch BOTH languages at once
-        gemini_disease = None
-        gemini_treatment_en = None
-        gemini_treatment_hi = None
-
-        NOT_A_LEAF = "not a leaf image"
-        if confidence < 80:
-            gkey = get_gemini_key()
-            if gkey:
-                with st.spinner(T["diagnosing"]):
-                    gemini_disease = gemini_ask_disease_name(image, gkey)
-                    # Only fetch treatment if it IS a leaf with a real disease
-                    if gemini_disease and gemini_disease.lower() not in (NOT_A_LEAF, "unknown", "healthy"):
-                        gemini_treatment_en, gemini_treatment_hi = gemini_ask_treatment_both(gemini_disease, gkey)
-
+        # Store model result; AI fields populated after user enters crop name
         st.session_state.last_diagnosis = {
             "raw_class": raw_class, "crop": crop_name,
             "disease": disease_name, "confidence": confidence, "info": info,
         }
-        st.session_state.gemini_disease = gemini_disease
-        st.session_state.gemini_treatment_en = gemini_treatment_en
-        st.session_state.gemini_treatment_hi = gemini_treatment_hi
+        st.session_state.gemini_disease = None
+        st.session_state.gemini_treatment_en = None
+        st.session_state.gemini_treatment_hi = None
         st.session_state.last_image_hash = img_hash
+        st.session_state.ai_crop_confirmed = False
+        st.session_state.crop_input = None
 
         if st.session_state.farmer_credits is not None and st.session_state.farmer_credits <= 0:
             st.session_state.credits_exhausted = True
 
     # ---- Display diagnosis ----
-    # NOTE: reading from session state means language switching re-renders
-    # the correct language without re-running inference or decrementing credits
     diag = st.session_state.last_diagnosis
     if diag:
-        confidence  = diag["confidence"]
-        crop_name   = diag["crop"]
-        disease_name= diag["disease"]
-        info        = diag["info"]
-        lang        = st.session_state.lang
-        gd          = st.session_state.gemini_disease
-        ai_assisted = confidence < 80 and gd is not None
+        confidence   = diag["confidence"]
+        crop_name_d  = diag["crop"]
+        disease_name = diag["disease"]
+        info         = diag["info"]
+        lang         = st.session_state.lang
+        gd           = st.session_state.gemini_disease
+        NOT_CROP     = "not a crop leaf"
 
-        NOT_A_LEAF = "not a leaf image"
-        is_not_leaf = (gd is not None and gd.lower() == NOT_A_LEAF)
-
-        st.subheader(T["diagnosis_title"])
-
-        if is_not_leaf:
-            # Not a leaf — show message, no treatment, no report button
-            not_leaf_msg = "Not a leaf image" if lang == "en" else "यह पत्ती की फोटो नहीं है"
-            st.markdown(f'<div class="cl-disease-name">⚠️ {not_leaf_msg}</div>', unsafe_allow_html=True)
-            st.info("Please upload a clear photo of a plant leaf." if lang == "en"
-                    else "कृपया पौधे की पत्ती की स्पष्ट फोटो अपलोड करें।")
-        else:
-            # Headline: use AI disease name if available, else model class
-            if ai_assisted and gd.lower() not in ("unknown",):
-                headline = gd
-            else:
-                headline = f"{crop_name} — {disease_name}" if disease_name else crop_name
-
-            st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
-
-            # Only show confidence bar for high-confidence model results
-            if not ai_assisted:
-                st.progress(min(int(confidence), 100), text=f"{T['confidence_label']}: {confidence:.1f}%")
-
-            if ai_assisted:
-                # AI-assisted path: no branding, no confidence warning
-                st.markdown(f"### {T['treatment_title']}")
-                points = st.session_state.gemini_treatment_hi if lang == "hi" else st.session_state.gemini_treatment_en
-                if points:
-                    for pt in points:
-                        if pt.strip():
-                            st.markdown(f'<div class="cl-treatment-box">• {pt}</div>', unsafe_allow_html=True)
+        # ── LOW CONFIDENCE: ask user for crop name first ──
+        if confidence < 80 and not st.session_state.ai_crop_confirmed:
+            crop_label = "Which crop is this leaf from?" if lang == "en" else "यह किस फसल की पत्ती है?"
+            crop_placeholder = "e.g. Tomato, Wheat, Rice..." if lang == "en" else "जैसे टमाटर, गेहूं, चावल..."
+            crop_btn   = "Identify Disease →" if lang == "en" else "रोग पहचानें →"
+            st.info(crop_label)
+            crop_val = st.text_input(crop_label, placeholder=crop_placeholder,
+                                     label_visibility="collapsed", key="crop_name_input")
+            if st.button(crop_btn, type="primary", key="crop_submit"):
+                if crop_val.strip():
+                    gkey = get_gemini_key()
+                    if gkey:
+                        with st.spinner(T["diagnosing"]):
+                            detected = gemini_ask_disease_name(image, gkey, crop_val.strip())
+                            treat_en, treat_hi = None, None
+                            if detected and detected.lower() not in (NOT_CROP, "unknown", "healthy"):
+                                treat_en, treat_hi = gemini_ask_treatment_both(detected, gkey)
+                        st.session_state.gemini_disease = detected
+                        st.session_state.gemini_treatment_en = treat_en
+                        st.session_state.gemini_treatment_hi = treat_hi
+                    st.session_state.ai_crop_confirmed = True
+                    st.rerun()
                 else:
-                    st.info(T["gemini_no_treatment"])
-            elif confidence < 80:
-                # Low confidence but no AI result
-                st.markdown(f'<div class="cl-card-warn">⚠️ {T["low_confidence_warning"]}</div>', unsafe_allow_html=True)
-                st.info(T["ai_no_result"])
-            else:
-                # High-confidence: knowledge-base treatment
-                st.markdown(f"### {T['treatment_title']}")
-                for key, label in [
-                    ("severity_", T["severity_label"]),
-                    ("symptoms_", T["symptoms_label"]),
-                    ("prevention_", T["prevention_label"]),
-                    ("treatment_", T["treatment_label"]),
-                ]:
-                    val = info.get(key + lang, info.get(key + "en", ""))
-                    st.markdown(f'<div class="cl-treatment-box"><b>{label}:</b> {val}</div>', unsafe_allow_html=True)
+                    st.warning("Please enter the crop name." if lang == "en" else "कृपया फसल का नाम दर्ज करें।")
 
-            st.markdown("")
-            st.button(
-                T["report_button"], key="open_report", type="secondary",
-                on_click=lambda: st.session_state.update(show_report=True),
-            )
+        else:
+            # ── RESULT DISPLAY ──
+            gd = st.session_state.gemini_disease
+            ai_assisted = confidence < 80 and gd is not None
+            is_not_crop = ai_assisted and gd.lower() == NOT_CROP
+
+            st.subheader(T["diagnosis_title"])
+
+            if is_not_crop:
+                msg = "Not a crop's leaf" if lang == "en" else "यह किसी फसल की पत्ती नहीं है"
+                st.markdown(f'<div class="cl-disease-name">⚠️ {msg}</div>', unsafe_allow_html=True)
+                st.info("Please upload a clear photo of a crop leaf." if lang == "en"
+                        else "कृपया फसल की पत्ती की स्पष्ट फोटो अपलोड करें।")
+            else:
+                if ai_assisted and gd.lower() not in ("unknown",):
+                    headline = gd
+                else:
+                    headline = f"{crop_name_d} — {disease_name}" if disease_name else crop_name_d
+
+                st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
+
+                if not ai_assisted:
+                    st.progress(min(int(confidence), 100), text=f"{T['confidence_label']}: {confidence:.1f}%")
+
+                st.markdown(f"### {T['treatment_title']}")
+                if ai_assisted:
+                    points = st.session_state.gemini_treatment_hi if lang == "hi" else st.session_state.gemini_treatment_en
+                    if points:
+                        for pt in points:
+                            if pt.strip():
+                                st.markdown(f'<div class="cl-treatment-box">• {pt}</div>', unsafe_allow_html=True)
+                    else:
+                        st.info(T["gemini_no_treatment"])
+                else:
+                    for key, label in [
+                        ("severity_", T["severity_label"]),
+                        ("symptoms_", T["symptoms_label"]),
+                        ("prevention_", T["prevention_label"]),
+                        ("treatment_", T["treatment_label"]),
+                    ]:
+                        val = info.get(key + lang, info.get(key + "en", ""))
+                        st.markdown(f'<div class="cl-treatment-box"><b>{label}:</b> {val}</div>', unsafe_allow_html=True)
+
+                st.markdown("")
+                st.button(
+                    T["report_button"], key="open_report", type="secondary",
+                    on_click=lambda: st.session_state.update(show_report=True),
+                )
 
         st.caption(T["disclaimer"])
 
