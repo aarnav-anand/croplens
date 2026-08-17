@@ -559,56 +559,99 @@ def gemini_check_is_leaf(pil_image: Image.Image, gemini_key: str) -> bool:
         return True  # fail open
 
 
+def _parse_diagnose_response(text: str):
+    """Parse the structured DISEASE / ENGLISH / HINDI response from the AI."""
+    disease = None
+    en_points, hi_points = [], []
+    current = None
+    for line in text.splitlines():
+        l = line.strip()
+        if l.upper().startswith("DISEASE:"):
+            disease = l.split(":", 1)[1].strip()
+        elif l.upper().startswith("ENGLISH"):
+            current = "en"
+        elif l.upper().startswith("HINDI"):
+            current = "hi"
+        elif l and (l[0] in "-•*" or (len(l) > 2 and l[1] == ".")):
+            clean = l.lstrip("-•* ").strip()
+            # strip leading number+dot (e.g. "1. text")
+            if len(clean) > 2 and clean[0].isdigit() and clean[1] == ".":
+                clean = clean[2:].strip()
+            if clean:
+                if current == "en":
+                    en_points.append(clean)
+                elif current == "hi":
+                    hi_points.append(clean)
+    return disease, en_points or None, hi_points or None
+
+
 def gemini_diagnose_and_treat(pil_image: Image.Image, gemini_key: str, crop_name: str):
-    """Single call: diagnose disease AND get treatment in both languages.
+    """Diagnose disease and return treatment in both languages.
+    Makes up to 2 attempts — a strict structured call first, then a more
+    permissive follow-up if the first returns Unknown or no points.
     Returns (disease_str, en_points_list, hi_points_list).
-    disease_str is exactly what AI returns — no predefined list constraint.
     """
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key={gemini_key}"
     b64 = image_to_base64(pil_image)
-    prompt = (
-        f"You are an agricultural expert. This is a photo of a {crop_name} leaf.\n\n"
-        f"Step 1: Identify the disease or condition visible on the leaf.\n"
-        f"Step 2: Give 3-4 treatment/management bullet points in English.\n"
-        f"Step 3: Translate those same bullet points into Hindi.\n\n"
-        f"Reply using EXACTLY this format and nothing else:\n\n"
-        f"DISEASE: <disease name>\n\n"
-        f"ENGLISH:\n- <point 1>\n- <point 2>\n- <point 3>\n\n"
-        f"HINDI:\n- <point 1 in Hindi>\n- <point 2 in Hindi>\n- <point 3 in Hindi>\n\n"
-        f"Rules:\n"
-        f"- If healthy, write: DISEASE: Healthy\n"
-        f"- Disease name must be specific (e.g. Early Blight, Apple Scab, Powdery Mildew).\n"
-        f"- Always include treatment bullet points, even for mild disease."
-    )
-    payload = {"contents": [{"parts": [
-        {"inlineData": {"mimeType": "image/jpeg", "data": b64}},
-        {"text": prompt}
-    ]}]}
-    try:
-        resp = requests.post(url, json=payload, timeout=40)
+
+    def call(prompt_text):
+        payload = {"contents": [{"parts": [
+            {"inlineData": {"mimeType": "image/jpeg", "data": b64}},
+            {"text": prompt_text}
+        ]}]}
+        resp = requests.post(url, json=payload, timeout=45)
         resp.raise_for_status()
-        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-        disease = None
-        en_points, hi_points = [], []
-        current = None
-        for line in text.splitlines():
-            l = line.strip()
-            if l.upper().startswith("DISEASE:"):
-                disease = l.split(":", 1)[1].strip()
-            elif l.upper().startswith("ENGLISH"):
-                current = "en"
-            elif l.upper().startswith("HINDI"):
-                current = "hi"
-            elif l.startswith("-") or l.startswith("•"):
-                clean = l.lstrip("-• ").strip()
-                if clean:
-                    if current == "en":
-                        en_points.append(clean)
-                    elif current == "hi":
-                        hi_points.append(clean)
-        return (disease or "Unknown", en_points or None, hi_points or None)
+        return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+    # ── Attempt 1: structured prompt ──
+    prompt1 = (
+        f"You are a plant pathologist. The farmer says this is a photo of a {crop_name} leaf.\n"
+        f"Carefully examine the image and identify the disease, infection, or health condition.\n\n"
+        f"YOU MUST respond in this exact format — no extra text, no markdown, no explanation:\n\n"
+        f"DISEASE: [specific disease name, e.g. Apple Scab, Early Blight, Powdery Mildew, Leaf Rust]\n\n"
+        f"ENGLISH:\n"
+        f"- [treatment step 1]\n"
+        f"- [treatment step 2]\n"
+        f"- [treatment step 3]\n"
+        f"- [treatment step 4]\n\n"
+        f"HINDI:\n"
+        f"- [treatment step 1 in Hindi]\n"
+        f"- [treatment step 2 in Hindi]\n"
+        f"- [treatment step 3 in Hindi]\n"
+        f"- [treatment step 4 in Hindi]\n\n"
+        f"IMPORTANT RULES:\n"
+        f"- If the leaf looks completely healthy, write DISEASE: Healthy and give care tips.\n"
+        f"- NEVER write Unknown. Always give your best diagnosis based on visible symptoms.\n"
+        f"- If you are not 100 percent certain, still commit to the most likely disease name.\n"
+        f"- Always include all 4 treatment steps in both languages."
+    )
+
+    try:
+        text1 = call(prompt1)
+        disease, en_pts, hi_pts = _parse_diagnose_response(text1)
+
+        # If result is usable, return it
+        if disease and disease.lower() not in ("unknown", "") and en_pts and hi_pts:
+            return disease, en_pts, hi_pts
+
+        # ── Attempt 2: even more direct, no format constraints ──
+        prompt2 = (
+            f"This is a {crop_name} leaf. What disease does it have? "
+            f"Give your best answer even if you are not certain. "
+            f"Write:\nDISEASE: <name>\n\nENGLISH:\n- tip1\n- tip2\n- tip3\n\n"
+            f"HINDI:\n- tip1\n- tip2\n- tip3"
+        )
+        text2 = call(prompt2)
+        disease2, en_pts2, hi_pts2 = _parse_diagnose_response(text2)
+
+        # Merge: take whatever is non-empty from either attempt
+        final_disease = (disease2 if disease2 and disease2.lower() != "unknown" else disease) or "Unable to diagnose"
+        final_en = en_pts2 or en_pts
+        final_hi = hi_pts2 or hi_pts
+        return final_disease, final_en, final_hi
+
     except Exception:
-        return "Unknown", None, None
+        return "Unable to diagnose", None, None
 
 
 def get_gemini_key():
@@ -849,8 +892,12 @@ if image_bytes_final:
 
             st.subheader(T["diagnosis_title"])
 
-            # Show disease name exactly as AI returned it
-            headline = gd if (gd and gd.lower() not in ("unknown",)) else "Unknown"
+            # Show disease name exactly as AI returned it — no filtering
+            if gd and gd.lower() not in ("unknown", "unable to diagnose"):
+                headline = gd
+            else:
+                headline = "Unable to diagnose" if lang == "en" else "निदान संभव नहीं"
+
             st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
 
             st.markdown(f"### {T['treatment_title']}")
@@ -859,10 +906,13 @@ if image_bytes_final:
             if points:
                 for pt in points:
                     if pt.strip():
-                        st.markdown(f'<div class="cl-treatment-box">\u2022 {pt}</div>',
+                        st.markdown(f'<div class="cl-treatment-box">• {pt}</div>',
                                     unsafe_allow_html=True)
             else:
-                st.info(T["gemini_no_treatment"])
+                retake = ("Could not generate advice. Please retake the photo in better lighting."
+                          if lang == "en" else
+                          "सलाह उत्पन्न नहीं हो सकी। बेहतर रोशनी में फोटो दोबारा लें।")
+                st.info(retake)
 
             st.markdown("")
             st.button(
@@ -870,6 +920,7 @@ if image_bytes_final:
                 on_click=lambda: st.session_state.update(show_report=True),
             )
             st.caption(T["disclaimer"])
+
 
     if st.session_state.credits_exhausted:
         st.error(
