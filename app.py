@@ -862,8 +862,10 @@ if image_bytes_final:
                     crop_name_m, disease_name_m = format_class_name(raw_class)
                     info       = get_disease_info(raw_class)
 
-                # Decrement credit
-                if st.session_state.farmer_credits is not None and supabase is not None:
+                # ── Decrement credit ONLY if scan was successful ──
+                # Success = either Gemini returned a result, or TFLite got high confidence
+                scan_success = (not ai_err and ai_disease) or (confidence >= CONFIDENCE_THRESHOLD)
+                if scan_success and st.session_state.farmer_credits is not None and supabase is not None:
                     new_c = decrement_credits(st.session_state.farmer_dif, st.session_state.farmer_credits)
                     if new_c is not None:
                         st.session_state.farmer_credits = new_c
