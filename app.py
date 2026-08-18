@@ -822,10 +822,14 @@ if image_bytes_final:
         crop_placeholder = "e.g. Tomato, Wheat, Rice..." if lang == "en" else "जैसे टमाटर, गेहूं, चावल..."
         crop_btn         = "Analyse →" if lang == "en" else "विश्लेषण करें →"
         st.info(crop_label)
-        crop_val = st.text_input(crop_label, placeholder=crop_placeholder,
-                                 label_visibility="collapsed", key="crop_name_input",
-                                 value=st.session_state.crop_input or "")
-        if st.button(crop_btn, type="primary", key="crop_submit"):
+
+        # Use st.form to avoid SessionInfo / rerun conflicts from manual st.rerun() inside callbacks
+        with st.form(key="crop_form"):
+            crop_val = st.text_input(crop_label, placeholder=crop_placeholder,
+                                     label_visibility="collapsed")
+            submitted = st.form_submit_button(crop_btn, type="primary")
+
+        if submitted:
             if crop_val.strip():
                 st.session_state.crop_input = crop_val.strip()
                 gkey = get_gemini_key()
@@ -880,10 +884,8 @@ if image_bytes_final:
 
                 if st.session_state.farmer_credits is not None and st.session_state.farmer_credits <= 0:
                     st.session_state.credits_exhausted = True
-
-                st.rerun()
             else:
-                st.warning("Please enter the crop name." if st.session_state.lang == "en"
+                st.warning("Please enter the crop name." if lang == "en"
                            else "कृपया फसल का नाम दर्ज करें।")
 
     # ── DISPLAY (only after crop name submitted and analysis done) ──
