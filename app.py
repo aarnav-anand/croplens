@@ -1032,19 +1032,28 @@ if st.session_state.get("show_report") and st.session_state.last_diagnosis:
             else:
                 with st.spinner(T["submitting"]):
                     try:
+                        # Always store the exact disease name shown to the user:
+                        # Gemini text when AI path was used, readable TFLite name otherwise.
+                        gd   = st.session_state.gemini_disease
+                        conf = diagnosis.get("confidence", 0)
+                        ai_path = conf < CONFIDENCE_THRESHOLD and bool(gd)
+
+                        final_disease = gd if ai_path else diagnosis.get("disease", "")
+                        final_crop    = st.session_state.get("crop_input") or diagnosis.get("crop", "")
+
                         supabase.table("outbreak_reports").insert({
-                            "disease_class": diagnosis["raw_class"],
-                            "crop": diagnosis["crop"],
-                            "disease": diagnosis["disease"],
-                            "confidence": diagnosis["confidence"],
-                            "farmer_name": farmer_name.strip(),
-                            "farmer_dif": st.session_state.farmer_dif,
-                            "farm_geojson": json.dumps(drawn_geojson),
-                            "center_lat": center_lat,
-                            "center_lng": center_lng,
-                            "notes": notes or None,
-                            "language": st.session_state.lang,
-                            "reported_at": datetime.now(timezone.utc).isoformat(),
+                            "disease_class": final_disease,
+                            "crop":          final_crop,
+                            "disease":       final_disease,
+                            "confidence":    conf,
+                            "farmer_name":   farmer_name.strip(),
+                            "farmer_dif":    st.session_state.farmer_dif,
+                            "farm_geojson":  json.dumps(drawn_geojson),
+                            "center_lat":    center_lat,
+                            "center_lng":    center_lng,
+                            "notes":         notes or None,
+                            "language":      st.session_state.lang,
+                            "reported_at":   datetime.now(timezone.utc).isoformat(),
                         }).execute()
                         st.success(T["report_success"])
                         st.session_state.show_report = False
