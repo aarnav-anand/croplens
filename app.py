@@ -583,7 +583,24 @@ def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = "")
     try:
         resp = requests.post(url, json=payload, timeout=45)
         resp.raise_for_status()
-        text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+        # Gemini can return HTTP 200 without a usable response.
+        # Treat that as a failed scan so it cannot consume a credit.
+        response_json = resp.json()
+        candidates = response_json.get("candidates") or []
+        if not candidates:
+            raise RuntimeError("Gemini returned no candidates.")
+
+        parts = (candidates[0].get("content") or {}).get("parts") or []
+        text_parts = [
+            p.get("text", "").strip()
+            for p in parts
+            if isinstance(p, dict) and p.get("text")
+        ]
+        text = "\n".join(text_parts).strip()
+
+        if not text:
+            raise RuntimeError("Gemini returned an empty response.")
 
         # ── Parse response ──
         is_leaf = True
@@ -616,6 +633,11 @@ def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = "")
                         en_points.append(clean)
                     elif current == "hi":
                         hi_points.append(clean)
+
+        # A successful leaf diagnosis must contain the fields that the UI
+        # actually displays. Otherwise treat it as a failed scan.
+        if is_leaf and (not disease or not en_points or not hi_points):
+            raise RuntimeError("Gemini returned an incomplete diagnosis.")
 
         return {
             "is_leaf":   is_leaf,
@@ -876,11 +898,24 @@ if image_bytes_final:
                 st.session_state.gemini_treatment_en = ai_en
                 st.session_state.gemini_treatment_hi = ai_hi
 
-                # ── Decrement credit ONLY if scan was successful ──
-                # Success = either Gemini returned a disease, or it's a leaf and TFLite has high confidence
-                scan_success = (is_leaf and ((not ai_err and ai_disease) or (confidence >= CONFIDENCE_THRESHOLD)))
+                # ── Decrement credit ONLY if a result will actually be shown ──
+                # Gemini failure + low TFLite confidence = failed scan:
+                # show the error and DO NOT charge the farmer.
+                gemini_success = (
+                    is_leaf
+                    and not ai_err
+                    and bool(ai_disease)
+                    and bool(ai_en)
+                    and bool(ai_hi)
+                )
+                tflite_success = is_leaf and confidence >= CONFIDENCE_THRESHOLD
+                scan_success = gemini_success or tflite_success
+
                 if scan_success and st.session_state.farmer_credits is not None and supabase is not None:
-                    new_c = decrement_credits(st.session_state.farmer_dif, st.session_state.farmer_credits)
+                    new_c = decrement_credits(
+                        st.session_state.farmer_dif,
+                        st.session_state.farmer_credits
+                    )
                     if new_c is not None:
                         st.session_state.farmer_credits = new_c
 
@@ -914,10 +949,13 @@ if image_bytes_final:
         # ── API ERROR ──
         elif ai_err and not gd:
             st.subheader(T["diagnosis_title"])
-            st.markdown(
-                f'<div class="cl-card-danger">\u26a0\ufe0f '
-                f'{CONTACT_MSG_EN if lang == "en" else CONTACT_MSG_HI}</div>',
-                unsafe_allow_html=True
+            st.error(
+                f'⚠️ {CONTACT_MSG_EN if lang == "en" else CONTACT_MSG_HI}'
+            )
+            st.caption(
+                "No scan credit was used for this failed attempt."
+                if lang == "en"
+                else "इस असफल प्रयास के लिए कोई स्कैन क्रेडिट नहीं काटा गया।"
             )
             st.caption(T["disclaimer"])
 
