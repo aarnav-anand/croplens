@@ -178,6 +178,9 @@ TEXT = {
         "config_missing": "Reporting not configured. Contact the app administrator.",
         "disclaimer": "⚠️ CropLens is an AI-assisted tool, not a substitute for professional agronomic advice.",
         "map_caption": "Use the polygon tool (□) on the map to mark your farm",
+        "view_treatment": "🩺 View Treatment & Care Advice",
+        "treatment_modal_title": "Treatment & Care Advice",
+        "modal_lang_label": "View in",
         "close": "Close",
     },
     "hi": {
@@ -240,6 +243,9 @@ TEXT = {
         "config_missing": "रिपोर्टिंग सेट नहीं है।",
         "disclaimer": "⚠️ क्रॉपलेंस एक एआई-सहायता प्राप्त टूल है, पेशेवर कृषि सलाह का विकल्प नहीं।",
         "map_caption": "पॉलीगॉन टूल (□) से मानचित्र पर खेत चिह्नित करें",
+        "view_treatment": "🩺 उपचार सलाह देखें",
+        "treatment_modal_title": "उपचार और देखभाल सलाह",
+        "modal_lang_label": "भाषा चुनें",
         "close": "बंद करें",
     },
 }
@@ -459,6 +465,7 @@ defaults = {
     "map_polygon": None,
     "last_diagnosis": None,
     "show_report": False,
+    "show_treatment": False,
     "farmer_dif": None,
     "farmer_credits": None,
     "credits_exhausted": False,
@@ -812,6 +819,8 @@ else:
 # =================================================================
 CONTACT_MSG_EN = "Model not responding. Please contact vajashivam8@gmail.com / 9321379188"
 CONTACT_MSG_HI = "मॉडल प्रतिक्रिया नहीं दे रहा। कृपया संपर्क करें: vajashivam8@gmail.com / 9321379188"
+APP_FAIL_EN = "Application failed. Please contact codecraftchampions/9321379188 for assistance"
+APP_FAIL_HI = "एप्लिकेशन विफल हुआ। कृपया सहायता के लिए codecraftchampions/9321379188 पर संपर्क करें।"
 CONFIDENCE_THRESHOLD = 95
 
 if image_bytes_final:
@@ -902,8 +911,8 @@ if image_bytes_final:
                 # The rerun below guarantees that this stored result/error is
                 # rendered before the user sees the completed scan.
                 #
-                # Gemini failure + low TFLite confidence = failed scan:
-                # show the error and DO NOT charge the farmer.
+                # Gemini failure = failed scan: show the error and DO NOT
+                # charge the farmer, regardless of what TFLite produced.
                 gemini_success = (
                     is_leaf
                     and not ai_err
@@ -912,7 +921,14 @@ if image_bytes_final:
                     and bool(ai_hi)
                 )
                 tflite_success = is_leaf and confidence >= CONFIDENCE_THRESHOLD
-                scan_success = gemini_success or tflite_success
+
+                if ai_err:
+                    # The Gemini request itself failed — never charge the
+                    # farmer for this scan, even if the TFLite model produced
+                    # a high-confidence result on its own.
+                    scan_success = False
+                else:
+                    scan_success = gemini_success or tflite_success
 
                 if scan_success and st.session_state.farmer_credits is not None and supabase is not None:
                     new_c = decrement_credits(
@@ -955,11 +971,11 @@ if image_bytes_final:
             st.markdown(f'<div class="cl-disease-name">\u26a0\ufe0f {msg}</div>', unsafe_allow_html=True)
             st.caption(T["disclaimer"])
 
-        # ── API ERROR ──
+        # ── API ERROR (Gemini request failed — no credit was charged) ──
         elif ai_err and not gd:
             st.subheader(T["diagnosis_title"])
             st.error(
-                f'⚠️ {CONTACT_MSG_EN if lang == "en" else CONTACT_MSG_HI}'
+                f'⚠️ {APP_FAIL_EN if lang == "en" else APP_FAIL_HI}'
             )
             st.caption(
                 "No scan credit was used for this failed attempt."
@@ -974,20 +990,14 @@ if image_bytes_final:
             headline = f"{crop_name_d} \u2014 {disease_name}" if disease_name else crop_name_d
             st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
             st.progress(min(int(confidence), 100), text=f"{T['confidence_label']}: {confidence:.1f}%")
-            st.markdown(f"### {T['treatment_title']}")
-            for key, label in [
-                ("severity_",   T["severity_label"]),
-                ("symptoms_",   T["symptoms_label"]),
-                ("prevention_", T["prevention_label"]),
-                ("treatment_",  T["treatment_label"]),
-            ]:
-                val = info.get(key + lang, info.get(key + "en", "")) if info else ""
-                if val:
-                    st.markdown(f'<div class="cl-treatment-box"><b>{label}:</b> {val}</div>',
-                                unsafe_allow_html=True)
             st.markdown("")
-            st.button(T["report_button"], key="open_report", type="secondary",
-                      on_click=lambda: st.session_state.update(show_report=True))
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                st.button(T["view_treatment"], key="open_treatment", type="primary",
+                          on_click=lambda: st.session_state.update(show_treatment=True))
+            with btn_col2:
+                st.button(T["report_button"], key="open_report", type="secondary",
+                          on_click=lambda: st.session_state.update(show_report=True))
             st.caption(T["disclaimer"])
 
         # ── LOW CONFIDENCE <95%: Gemini result ──
@@ -997,8 +1007,72 @@ if image_bytes_final:
                 "Unable to diagnose" if lang == "en" else "निदान संभव नहीं"
             )
             st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
-            st.markdown(f"### {T['treatment_title']}")
-            points = (st.session_state.gemini_treatment_hi if lang == "hi"
+            st.caption(T["low_confidence_warning"])
+            st.markdown("")
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                st.button(T["view_treatment"], key="open_treatment", type="primary",
+                          on_click=lambda: st.session_state.update(show_treatment=True))
+            with btn_col2:
+                st.button(T["report_button"], key="open_report", type="secondary",
+                          on_click=lambda: st.session_state.update(show_report=True))
+            st.caption(T["disclaimer"])
+
+    if st.session_state.credits_exhausted:
+        st.error(
+            f"### \U0001f6ab {T['credits_exhausted_title']}\n\n"
+            f"{T['credits_exhausted_body']} **[agrifusion-web.vercel.app](https://agrifusion-web.vercel.app)**"
+        )
+
+# =================================================================
+# TREATMENT ADVICE DIALOG
+# Lets the farmer toggle between English and Hindi treatment advice
+# inside the modal, independent of the app's main language setting.
+# =================================================================
+if st.session_state.get("show_treatment") and st.session_state.last_diagnosis:
+
+    @st.dialog(T["treatment_modal_title"], width="large")
+    def treatment_dialog():
+        diag = st.session_state.last_diagnosis
+        confidence = diag.get("confidence", 0)
+        info = diag.get("info")
+        gd = st.session_state.gemini_disease
+
+        modal_lang = st.radio(
+            T["modal_lang_label"],
+            options=["en", "hi"],
+            format_func=lambda x: "English" if x == "en" else "हिंदी",
+            horizontal=True,
+            index=0 if st.session_state.lang == "en" else 1,
+            key="treatment_modal_lang",
+        )
+
+        is_tflite_path = confidence >= CONFIDENCE_THRESHOLD and info is not None
+
+        if is_tflite_path:
+            crop_name_d = diag.get("crop", "")
+            disease_name = diag.get("disease", "")
+            headline = f"{crop_name_d} — {disease_name}" if disease_name else crop_name_d
+            st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
+
+            labels_map = {
+                "severity_":   ("Severity", "गंभीरता"),
+                "symptoms_":   ("Symptoms", "लक्षण"),
+                "prevention_": ("Prevention", "रोकथाम"),
+                "treatment_":  ("Treatment", "उपचार"),
+            }
+            for key, (label_en, label_hi) in labels_map.items():
+                label = label_en if modal_lang == "en" else label_hi
+                val = info.get(key + modal_lang, info.get(key + "en", "")) if info else ""
+                if val:
+                    st.markdown(f'<div class="cl-treatment-box"><b>{label}:</b> {val}</div>',
+                                unsafe_allow_html=True)
+        else:
+            headline = gd if (gd and gd.lower() not in ("unknown",)) else (
+                "Unable to diagnose" if modal_lang == "en" else "निदान संभव नहीं"
+            )
+            st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
+            points = (st.session_state.gemini_treatment_hi if modal_lang == "hi"
                       else st.session_state.gemini_treatment_en)
             if points:
                 for pt in points:
@@ -1008,21 +1082,16 @@ if image_bytes_final:
             else:
                 st.markdown(
                     f'<div class="cl-card-danger">\u26a0\ufe0f '
-                    f'{CONTACT_MSG_EN if lang == "en" else CONTACT_MSG_HI}</div>',
+                    f'{APP_FAIL_EN if modal_lang == "en" else APP_FAIL_HI}</div>',
                     unsafe_allow_html=True
                 )
-            st.markdown("")
-            st.button(T["report_button"], key="open_report", type="secondary",
-                      on_click=lambda: st.session_state.update(show_report=True))
-            st.caption(T["disclaimer"])
 
-            st.caption(T["disclaimer"])
+        st.caption(T["disclaimer"])
+        if st.button(T["close"], key="close_treatment_modal"):
+            st.session_state.show_treatment = False
+            st.rerun()
 
-    if st.session_state.credits_exhausted:
-        st.error(
-            f"### \U0001f6ab {T['credits_exhausted_title']}\n\n"
-            f"{T['credits_exhausted_body']} **[agrifusion-web.vercel.app](https://agrifusion-web.vercel.app)**"
-        )
+    treatment_dialog()
 
 # =================================================================
 # REPORT OUTBREAK DIALOG
