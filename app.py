@@ -862,14 +862,7 @@ if image_bytes_final:
                     crop_name_m, disease_name_m = format_class_name(raw_class)
                     info       = get_disease_info(raw_class)
 
-                # ── Decrement credit ONLY if scan was successful ──
-                # Success = either Gemini returned a result, or TFLite got high confidence
-                scan_success = (not ai_err and ai_disease) or (confidence >= CONFIDENCE_THRESHOLD)
-                if scan_success and st.session_state.farmer_credits is not None and supabase is not None:
-                    new_c = decrement_credits(st.session_state.farmer_dif, st.session_state.farmer_credits)
-                    if new_c is not None:
-                        st.session_state.farmer_credits = new_c
-
+                # ── Store all results ──
                 st.session_state.last_diagnosis = {
                     "is_leaf":    is_leaf,
                     "ai_err":     ai_err,
@@ -882,10 +875,20 @@ if image_bytes_final:
                 st.session_state.gemini_disease      = ai_disease
                 st.session_state.gemini_treatment_en = ai_en
                 st.session_state.gemini_treatment_hi = ai_hi
-                st.session_state.ai_crop_confirmed   = True
+
+                # ── Decrement credit ONLY if scan was successful ──
+                # Success = either Gemini returned a disease, or it's a leaf and TFLite has high confidence
+                scan_success = (is_leaf and ((not ai_err and ai_disease) or (confidence >= CONFIDENCE_THRESHOLD)))
+                if scan_success and st.session_state.farmer_credits is not None and supabase is not None:
+                    new_c = decrement_credits(st.session_state.farmer_dif, st.session_state.farmer_credits)
+                    if new_c is not None:
+                        st.session_state.farmer_credits = new_c
 
                 if st.session_state.farmer_credits is not None and st.session_state.farmer_credits <= 0:
                     st.session_state.credits_exhausted = True
+
+                # Mark as confirmed — this triggers display on next rerun
+                st.session_state.ai_crop_confirmed = True
             else:
                 st.warning("Please enter the crop name." if lang == "en"
                            else "कृपया फसल का नाम दर्ज करें।")
@@ -964,6 +967,8 @@ if image_bytes_final:
             st.markdown("")
             st.button(T["report_button"], key="open_report", type="secondary",
                       on_click=lambda: st.session_state.update(show_report=True))
+            st.caption(T["disclaimer"])
+
             st.caption(T["disclaimer"])
 
     if st.session_state.credits_exhausted:
