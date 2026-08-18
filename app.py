@@ -899,6 +899,9 @@ if image_bytes_final:
                 st.session_state.gemini_treatment_hi = ai_hi
 
                 # ── Decrement credit ONLY if a result will actually be shown ──
+                # The rerun below guarantees that this stored result/error is
+                # rendered before the user sees the completed scan.
+                #
                 # Gemini failure + low TFLite confidence = failed scan:
                 # show the error and DO NOT charge the farmer.
                 gemini_success = (
@@ -922,8 +925,14 @@ if image_bytes_final:
                 if st.session_state.farmer_credits is not None and st.session_state.farmer_credits <= 0:
                     st.session_state.credits_exhausted = True
 
-                # Mark as confirmed — this triggers display on next rerun
+                # Mark as confirmed, then immediately rerun so the result
+                # (or the Gemini error) is actually rendered.
+                #
+                # Without this rerun Streamlit finishes the button-click run
+                # immediately after the API call. That was why the credit could
+                # decrease while the user saw no result.
                 st.session_state.ai_crop_confirmed = True
+                st.rerun()
             else:
                 st.warning("Please enter the crop name." if lang == "en"
                            else "कृपया फसल का नाम दर्ज करें।")
