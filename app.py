@@ -178,6 +178,7 @@ TEXT = {
         "config_missing": "Reporting not configured. Contact the app administrator.",
         "disclaimer": "⚠️ CropLens is an AI-assisted tool, not a substitute for professional agronomic advice.",
         "map_caption": "Use the polygon tool (□) on the map to mark your farm",
+        "water_location_error": "⛔ The selected location appears to be in a water body (ocean, sea, or lake). Please draw your farm boundary on land.",
         "view_treatment": "🩺 View Treatment & Care Advice",
         "treatment_modal_title": "Treatment & Care Advice",
         "modal_lang_label": "View in",
@@ -243,6 +244,7 @@ TEXT = {
         "config_missing": "रिपोर्टिंग सेट नहीं है।",
         "disclaimer": "⚠️ क्रॉपलेंस एक एआई-सहायता प्राप्त टूल है, पेशेवर कृषि सलाह का विकल्प नहीं।",
         "map_caption": "पॉलीगॉन टूल (□) से मानचित्र पर खेत चिह्नित करें",
+        "water_location_error": "⛔ चुना गया स्थान जल क्षेत्र (समुद्र, सागर या झील) में प्रतीत होता है। कृपया खेत की सीमा ज़मीन पर बनाएं।",
         "view_treatment": "🩺 उपचार सलाह देखें",
         "treatment_modal_title": "उपचार और देखभाल सलाह",
         "modal_lang_label": "भाषा चुनें",
@@ -455,6 +457,68 @@ def format_class_name(raw_class_name: str) -> tuple:
     crop = parts[0].replace("_", " ").strip()
     disease = parts[1].replace("_", " ").strip() if len(parts) > 1 else ""
     return crop, disease
+
+
+# =================================================================
+# WATER BODY DETECTION
+# Uses Nominatim reverse-geocoding (OpenStreetMap) to check whether
+# a lat/lng point falls on a water body (ocean, sea, lake, river …).
+# Returns True  → the point is in water (reject it).
+# Returns False → the point is on land (allow it).
+# Returns None  → the check could not be completed (allow with caution).
+# =================================================================
+def is_location_in_water(lat: float, lng: float) -> bool | None:
+    """
+    Query Nominatim reverse-geocode API.  When the coordinate is over open
+    water Nominatim either returns no address at all or returns a place whose
+    'type' / 'class' is a water-related OSM tag.  We treat both cases as water.
+    """
+    water_classes = {"water", "waterway", "natural"}
+    water_types   = {
+        "water", "sea", "ocean", "bay", "lake", "river", "stream",
+        "canal", "reservoir", "pond", "wetland", "coastline",
+    }
+    try:
+        url = (
+            "https://nominatim.openstreetmap.org/reverse"
+            f"?lat={lat}&lon={lng}&format=jsonv2&zoom=10"
+        )
+        resp = requests.get(
+            url,
+            headers={"User-Agent": "CropLens/1.0 (crop disease reporting app)"},
+            timeout=6,
+        )
+        if resp.status_code != 200:
+            return None  # can't determine — let it through
+
+        data = resp.json()
+
+        # Nominatim returns {"error": "Unable to geocode"} for open-ocean points
+        if "error" in data:
+            return True
+
+        osm_class = data.get("class", "")
+        osm_type  = data.get("type", "")
+        category  = data.get("category", "")
+
+        if osm_class in water_classes or osm_type in water_types or category in water_classes:
+            return True
+
+        # Secondary check: if the display_name contains only water-related terms
+        # and there is no meaningful address (no road, suburb, city, country …)
+        address = data.get("address", {})
+        land_keys = {
+            "road", "suburb", "village", "town", "city", "state",
+            "country", "county", "district", "neighbourhood",
+        }
+        if not any(k in address for k in land_keys):
+            # No land address at all → treat as water
+            return True
+
+        return False
+
+    except Exception:
+        return None  # network error — allow with caution
 
 
 # =================================================================
@@ -1007,7 +1071,6 @@ if image_bytes_final:
                 "Unable to diagnose" if lang == "en" else "निदान संभव नहीं"
             )
             st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
-            st.caption(T["low_confidence_warning"])
             st.markdown("")
             btn_col1, btn_col2 = st.columns(2)
             with btn_col1:
@@ -1152,9 +1215,20 @@ if st.session_state.get("show_report") and st.session_state.last_diagnosis:
                 st.warning(T["farmer_name_req"])
             elif not drawn_geojson:
                 st.warning(T["no_polygon_warning"])
+            elif center_lat is None or center_lng is None:
+                st.warning(T["no_polygon_warning"])
             elif supabase is None:
                 st.error(T["config_missing"])
             else:
+                # ------------------------------------------------------------------
+                # Water-body guard: reject submissions where the drawn shape's
+                # centroid falls on an ocean, sea, or lake.
+                # ------------------------------------------------------------------
+                in_water = is_location_in_water(center_lat, center_lng)
+                if in_water is True:
+                    st.error(T["water_location_error"])
+                    st.stop()
+                # in_water is None → check failed (network issue) — allow through
                 with st.spinner(T["submitting"]):
                     try:
                         # Always store the exact disease name shown to the user:
