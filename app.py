@@ -1048,20 +1048,25 @@ if image_bytes_final:
             )
             st.caption(T["disclaimer"])
 
-        # ── HIGH CONFIDENCE ≥95%: TFLite result ──
+        # ── HIGH CONFIDENCE >=95%: TFLite result ──
         elif confidence >= CONFIDENCE_THRESHOLD:
             st.subheader(T["diagnosis_title"])
             headline = f"{crop_name_d} \u2014 {disease_name}" if disease_name else crop_name_d
             st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
             st.progress(min(int(confidence), 100), text=f"{T['confidence_label']}: {confidence:.1f}%")
             st.markdown("")
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
+            is_healthy = disease_name.strip().lower() == "healthy"
+            if is_healthy:
                 st.button(T["view_treatment"], key="open_treatment", type="primary",
                           on_click=lambda: st.session_state.update(show_treatment=True))
-            with btn_col2:
-                st.button(T["report_button"], key="open_report", type="secondary",
-                          on_click=lambda: st.session_state.update(show_report=True))
+            else:
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    st.button(T["view_treatment"], key="open_treatment", type="primary",
+                              on_click=lambda: st.session_state.update(show_treatment=True))
+                with btn_col2:
+                    st.button(T["report_button"], key="open_report", type="secondary",
+                              on_click=lambda: st.session_state.update(show_report=True))
             st.caption(T["disclaimer"])
 
         # ── LOW CONFIDENCE <95%: Gemini result ──
@@ -1072,13 +1077,18 @@ if image_bytes_final:
             )
             st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
             st.markdown("")
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
+            is_healthy = headline.strip().lower() == "healthy"
+            if is_healthy:
                 st.button(T["view_treatment"], key="open_treatment", type="primary",
                           on_click=lambda: st.session_state.update(show_treatment=True))
-            with btn_col2:
-                st.button(T["report_button"], key="open_report", type="secondary",
-                          on_click=lambda: st.session_state.update(show_report=True))
+            else:
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    st.button(T["view_treatment"], key="open_treatment", type="primary",
+                              on_click=lambda: st.session_state.update(show_treatment=True))
+                with btn_col2:
+                    st.button(T["report_button"], key="open_report", type="secondary",
+                              on_click=lambda: st.session_state.update(show_report=True))
             st.caption(T["disclaimer"])
 
     if st.session_state.credits_exhausted:
