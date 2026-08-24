@@ -1099,10 +1099,10 @@ if image_bytes_final:
 
 # =================================================================
 # TREATMENT ADVICE DIALOG
-# Lets the farmer toggle between English and Hindi treatment advice
-# inside the modal, independent of the app's main language setting.
 # =================================================================
-if st.session_state.get("show_treatment") and st.session_state.last_diagnosis:
+
+# Ensure mutual exclusivity: only one dialog opens per run
+if st.session_state.get("show_treatment") and not st.session_state.get("show_report") and st.session_state.last_diagnosis:
 
     @st.dialog(T["treatment_modal_title"], width="large")
     def treatment_dialog():
@@ -1169,7 +1169,8 @@ if st.session_state.get("show_treatment") and st.session_state.last_diagnosis:
 # =================================================================
 # REPORT OUTBREAK DIALOG
 # =================================================================
-if st.session_state.get("show_report") and st.session_state.last_diagnosis:
+
+elif st.session_state.get("show_report") and not st.session_state.get("show_treatment") and st.session_state.last_diagnosis:
 
     @st.dialog(T["report_dialog_title"], width="large")
     def report_dialog():
@@ -1230,19 +1231,12 @@ if st.session_state.get("show_report") and st.session_state.last_diagnosis:
             elif supabase is None:
                 st.error(T["config_missing"])
             else:
-                # ------------------------------------------------------------------
-                # Water-body guard: reject submissions where the drawn shape's
-                # centroid falls on an ocean, sea, or lake.
-                # ------------------------------------------------------------------
                 in_water = is_location_in_water(center_lat, center_lng)
                 if in_water is True:
                     st.error(T["water_location_error"])
                     st.stop()
-                # in_water is None → check failed (network issue) — allow through
                 with st.spinner(T["submitting"]):
                     try:
-                        # Always store the exact disease name shown to the user:
-                        # Gemini text when AI path was used, readable TFLite name otherwise.
                         gd   = st.session_state.gemini_disease
                         conf = diagnosis.get("confidence", 0)
                         ai_path = conf < CONFIDENCE_THRESHOLD and bool(gd)
