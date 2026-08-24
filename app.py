@@ -1097,12 +1097,39 @@ if image_bytes_final:
             f"{T['credits_exhausted_body']} **[agrifusion-web.vercel.app](https://agrifusion-web.vercel.app)**"
         )
 
+## =================================================================
+# DIAGNOSIS DISPLAY — replace the existing display block
+# Find the two button sections (>=95% and <95%) and replace ALL
+# four on_click lambdas as shown below.
+# =================================================================
+
+# ── HIGH CONFIDENCE >=95%: TFLite result ──
+# REPLACE the two buttons in this block with:
+
+#   st.button(T["view_treatment"], key="open_treatment", type="primary",
+#             on_click=lambda: st.session_state.update(active_dialog="treatment"))
+#
+#   st.button(T["report_button"], key="open_report", type="secondary",
+#             on_click=lambda: st.session_state.update(active_dialog="report"))
+
+# ── LOW CONFIDENCE <95%: Gemini result ──
+# REPLACE the two buttons in this block with:
+
+#   st.button(T["view_treatment"], key="open_treatment2", type="primary",
+#             on_click=lambda: st.session_state.update(active_dialog="treatment"))
+#
+#   st.button(T["report_button"], key="open_report2", type="secondary",
+#             on_click=lambda: st.session_state.update(active_dialog="report"))
+
+# NOTE: Also add "active_dialog": None to the defaults dict at the top of your file,
+# and remove "show_treatment" and "show_report" from defaults.
+# Replace every reference to show_treatment / show_report in the signed-out reset
+# block with active_dialog: None.
+
 # =================================================================
 # TREATMENT ADVICE DIALOG
 # =================================================================
-
-# Ensure mutual exclusivity: only one dialog opens per run
-if st.session_state.get("show_treatment") and not st.session_state.get("show_report") and st.session_state.last_diagnosis:
+if st.session_state.get("active_dialog") == "treatment" and st.session_state.last_diagnosis:
 
     @st.dialog(T["treatment_modal_title"], width="large")
     def treatment_dialog():
@@ -1161,7 +1188,7 @@ if st.session_state.get("show_treatment") and not st.session_state.get("show_rep
 
         st.caption(T["disclaimer"])
         if st.button(T["close"], key="close_treatment_modal"):
-            st.session_state.show_treatment = False
+            st.session_state.active_dialog = None
             st.rerun()
 
     treatment_dialog()
@@ -1169,15 +1196,13 @@ if st.session_state.get("show_treatment") and not st.session_state.get("show_rep
 # =================================================================
 # REPORT OUTBREAK DIALOG
 # =================================================================
-
-elif st.session_state.get("show_report") and not st.session_state.get("show_treatment") and st.session_state.last_diagnosis:
+elif st.session_state.get("active_dialog") == "report" and st.session_state.last_diagnosis:
 
     @st.dialog(T["report_dialog_title"], width="large")
     def report_dialog():
         diagnosis = st.session_state.last_diagnosis
         st.write(T["report_instructions"])
 
-        # Map centred on India; farmer draws polygon to mark their farm
         m = folium.Map(location=[20.5937, 78.9629], zoom_start=5, tiles="OpenStreetMap")
 
         Draw(
@@ -1218,7 +1243,7 @@ elif st.session_state.get("show_report") and not st.session_state.get("show_trea
             submit_clicked = st.button(T["submit_report"], type="primary")
         with col_b:
             if st.button(T["close"]):
-                st.session_state.show_report = False
+                st.session_state.active_dialog = None
                 st.rerun()
 
         if submit_clicked:
@@ -1259,7 +1284,7 @@ elif st.session_state.get("show_report") and not st.session_state.get("show_trea
                             "reported_at":   datetime.now(timezone.utc).isoformat(),
                         }).execute()
                         st.success(T["report_success"])
-                        st.session_state.show_report = False
+                        st.session_state.active_dialog = None
                         st.session_state.map_polygon = None
                         st.rerun()
                     except Exception as ex:
