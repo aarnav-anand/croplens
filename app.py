@@ -38,7 +38,6 @@ st.markdown("""
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; font-size: 16px; }
     .block-container { padding-top: 1rem; padding-bottom: 3rem; max-width: 720px; }
 
-    /* FIX 1: language toggle — compact, never wraps */
     div[data-testid="stRadio"] > div { flex-wrap: nowrap !important; gap: 0.4em !important; }
     div[data-testid="stRadio"] label { white-space: nowrap; font-size: 0.85em; }
 
@@ -48,7 +47,6 @@ st.markdown("""
     }
     div[data-testid="stFileUploader"] section { border-radius: 12px; padding: 1.2em; }
 
-    /* sign-in card — compact */
     .cl-signin-wrap {
         background: linear-gradient(135deg, rgba(34,197,94,0.08) 0%, rgba(16,185,129,0.05) 100%);
         border: 1.5px solid rgba(34,197,94,0.3);
@@ -61,7 +59,6 @@ st.markdown("""
     .cl-signin-wrap h3 { margin: 0.1em 0 0.05em; font-size: 1.05em; font-weight: 700; }
     .cl-signin-wrap p  { margin: 0; font-size: 0.83em; color: #6b7280; }
 
-    /* FIX 3: collapse the gap between the card div and stMarkdown elements */
     .cl-card {
         background: linear-gradient(135deg, rgba(34,197,94,0.07) 0%, rgba(16,185,129,0.05) 100%);
         border: 1px solid rgba(34,197,94,0.25);
@@ -69,7 +66,6 @@ st.markdown("""
         padding: 1em 1.3em;
         margin-bottom: 0.5em;
     }
-    /* hide the stMarkdown wrappers that open/close the card so there's no white gap */
     .cl-card-inner { padding: 0; }
 
     .cl-card-warn {
@@ -97,13 +93,31 @@ st.markdown("""
         padding: 0.8em 1em; margin: 0.4em 0;
         color: #166534;
     }
+    .cl-treatment-section {
+        background: linear-gradient(135deg, rgba(34,197,94,0.06) 0%, rgba(16,185,129,0.04) 100%);
+        border: 1px solid rgba(34,197,94,0.2);
+        border-radius: 14px;
+        padding: 1.2em 1.4em;
+        margin: 1em 0 0.5em;
+    }
+    .cl-treatment-section h4 {
+        margin: 0 0 0.8em;
+        font-size: 1.05em;
+        font-weight: 700;
+        color: #166534;
+    }
+    .cl-report-section {
+        background: rgba(251,191,36,0.06);
+        border: 1px solid rgba(245,158,11,0.25);
+        border-radius: 14px;
+        padding: 1.2em 1.4em;
+        margin: 0.5em 0;
+    }
 
     .cl-instructions li { margin-bottom: 0.4em; line-height: 1.6em; }
 
-    /* FIX 4 & 5: hide default camera widget, show only when toggled */
     .camera-section { margin-top: 0.5em; }
 
-    /* diagnosis name */
     .cl-disease-name { font-size: 1.35em; font-weight: 700; margin: 0.2em 0 0.5em; }
 
     @media (max-width: 480px) {
@@ -179,10 +193,8 @@ TEXT = {
         "disclaimer": "⚠️ CropLens is an AI-assisted tool, not a substitute for professional agronomic advice.",
         "map_caption": "Use the polygon tool (□) on the map to mark your farm",
         "water_location_error": "⛔ The selected location appears to be in a water body (ocean, sea, or lake). Please draw your farm boundary on land.",
-        "view_treatment": "🩺 View Treatment & Care Advice",
-        "treatment_modal_title": "Treatment & Care Advice",
+        "hide_report": "✕ Close Report Form",
         "modal_lang_label": "View in",
-        "close": "Close",
     },
     "hi": {
         "app_title": "🌱 क्रॉपलेंस",
@@ -245,10 +257,8 @@ TEXT = {
         "disclaimer": "⚠️ क्रॉपलेंस एक एआई-सहायता प्राप्त टूल है, पेशेवर कृषि सलाह का विकल्प नहीं।",
         "map_caption": "पॉलीगॉन टूल (□) से मानचित्र पर खेत चिह्नित करें",
         "water_location_error": "⛔ चुना गया स्थान जल क्षेत्र (समुद्र, सागर या झील) में प्रतीत होता है। कृपया खेत की सीमा ज़मीन पर बनाएं।",
-        "view_treatment": "🩺 उपचार सलाह देखें",
-        "treatment_modal_title": "उपचार और देखभाल सलाह",
+        "hide_report": "✕ फॉर्म बंद करें",
         "modal_lang_label": "भाषा चुनें",
-        "close": "बंद करें",
     },
 }
 
@@ -461,18 +471,8 @@ def format_class_name(raw_class_name: str) -> tuple:
 
 # =================================================================
 # WATER BODY DETECTION
-# Uses Nominatim reverse-geocoding (OpenStreetMap) to check whether
-# a lat/lng point falls on a water body (ocean, sea, lake, river …).
-# Returns True  → the point is in water (reject it).
-# Returns False → the point is on land (allow it).
-# Returns None  → the check could not be completed (allow with caution).
 # =================================================================
 def is_location_in_water(lat: float, lng: float) -> bool | None:
-    """
-    Query Nominatim reverse-geocode API.  When the coordinate is over open
-    water Nominatim either returns no address at all or returns a place whose
-    'type' / 'class' is a water-related OSM tag.  We treat both cases as water.
-    """
     water_classes = {"water", "waterway", "natural"}
     water_types   = {
         "water", "sea", "ocean", "bay", "lake", "river", "stream",
@@ -489,11 +489,9 @@ def is_location_in_water(lat: float, lng: float) -> bool | None:
             timeout=6,
         )
         if resp.status_code != 200:
-            return None  # can't determine — let it through
+            return None
 
         data = resp.json()
-
-        # Nominatim returns {"error": "Unable to geocode"} for open-ocean points
         if "error" in data:
             return True
 
@@ -504,21 +502,18 @@ def is_location_in_water(lat: float, lng: float) -> bool | None:
         if osm_class in water_classes or osm_type in water_types or category in water_classes:
             return True
 
-        # Secondary check: if the display_name contains only water-related terms
-        # and there is no meaningful address (no road, suburb, city, country …)
         address = data.get("address", {})
         land_keys = {
             "road", "suburb", "village", "town", "city", "state",
             "country", "county", "district", "neighbourhood",
         }
         if not any(k in address for k in land_keys):
-            # No land address at all → treat as water
             return True
 
         return False
 
     except Exception:
-        return None  # network error — allow with caution
+        return None
 
 
 # =================================================================
@@ -529,7 +524,6 @@ defaults = {
     "map_polygon": None,
     "last_diagnosis": None,
     "show_report": False,
-    "show_treatment": False,
     "farmer_dif": None,
     "farmer_credits": None,
     "credits_exhausted": False,
@@ -539,8 +533,8 @@ defaults = {
     "last_image_hash": None,
     "show_camera": False,
     "pending_camera_img": None,
-    "crop_input": None,            # crop name entered by user for low-confidence scans
-    "ai_crop_confirmed": False,    # True once user has submitted crop name
+    "crop_input": None,
+    "ai_crop_confirmed": False,
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -610,10 +604,6 @@ def image_to_base64(pil_image: Image.Image) -> str:
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = ""):
-    """Single Gemini call: leaf check + disease diagnosis + treatment in both languages.
-    crop_name is provided by the farmer before this call is made.
-    Returns dict: is_leaf, disease, en_points, hi_points, error.
-    """
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
         f"gemini-3.5-flash:generateContent?key={gemini_key}"
@@ -655,8 +645,6 @@ def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = "")
         resp = requests.post(url, json=payload, timeout=45)
         resp.raise_for_status()
 
-        # Gemini can return HTTP 200 without a usable response.
-        # Treat that as a failed scan so it cannot consume a credit.
         response_json = resp.json()
         candidates = response_json.get("candidates") or []
         if not candidates:
@@ -673,7 +661,6 @@ def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = "")
         if not text:
             raise RuntimeError("Gemini returned an empty response.")
 
-        # ── Parse response ──
         is_leaf = True
         disease = None
         en_points, hi_points = [], []
@@ -705,8 +692,6 @@ def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = "")
                     elif current == "hi":
                         hi_points.append(clean)
 
-        # A successful leaf diagnosis must contain the fields that the UI
-        # actually displays. Otherwise treat it as a failed scan.
         if is_leaf and (not disease or not en_points or not hi_points):
             raise RuntimeError("Gemini returned an incomplete diagnosis.")
 
@@ -720,7 +705,7 @@ def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = "")
 
     except Exception as e:
         return {
-            "is_leaf":   True,   # fail open
+            "is_leaf":   True,
             "disease":   None,
             "en_points": None,
             "hi_points": None,
@@ -734,14 +719,189 @@ def get_gemini_key():
     except Exception:
         return None
 
-# =================================================================
-# HEADER — language toggle first, then header uses updated T
-# =================================================================
 
-# T must be set before anything renders — initialise from session state
+# =================================================================
+# INLINE TREATMENT RENDERER
+# Called after diagnosis is ready — no modal, no button needed.
+# =================================================================
+def render_treatment_inline(diag, lang):
+    """Render treatment & care advice directly on the page."""
+    confidence  = diag.get("confidence", 0)
+    info        = diag.get("info")
+    gd          = st.session_state.gemini_disease
+    T_local     = TEXT[lang]
+
+    st.markdown(
+        f'<div class="cl-treatment-section"><h4>{T_local["treatment_title"]}</h4></div>',
+        unsafe_allow_html=True,
+    )
+
+    # Language toggle inside the treatment block
+    modal_lang = st.radio(
+        T_local["modal_lang_label"],
+        options=["en", "hi"],
+        format_func=lambda x: "English" if x == "en" else "हिंदी",
+        horizontal=True,
+        index=0 if lang == "en" else 1,
+        key="treatment_inline_lang",
+    )
+
+    is_tflite_path = confidence >= CONFIDENCE_THRESHOLD and info is not None
+
+    if is_tflite_path:
+        crop_name_d  = diag.get("crop", "")
+        disease_name = diag.get("disease", "")
+
+        labels_map = {
+            "severity_":   ("Severity",   "गंभीरता"),
+            "symptoms_":   ("Symptoms",   "लक्षण"),
+            "prevention_": ("Prevention", "रोकथाम"),
+            "treatment_":  ("Treatment",  "उपचार"),
+        }
+        for key, (label_en, label_hi) in labels_map.items():
+            label = label_en if modal_lang == "en" else label_hi
+            val   = info.get(key + modal_lang, info.get(key + "en", "")) if info else ""
+            if val:
+                st.markdown(
+                    f'<div class="cl-treatment-box"><b>{label}:</b> {val}</div>',
+                    unsafe_allow_html=True,
+                )
+    else:
+        # Gemini path
+        points = (
+            st.session_state.gemini_treatment_hi if modal_lang == "hi"
+            else st.session_state.gemini_treatment_en
+        )
+        if points:
+            for pt in points:
+                if pt.strip():
+                    st.markdown(
+                        f'<div class="cl-treatment-box">• {pt}</div>',
+                        unsafe_allow_html=True,
+                    )
+        else:
+            APP_FAIL = (
+                "Application failed. Please contact codecraftchampions/9321379188 for assistance"
+                if modal_lang == "en"
+                else "एप्लिकेशन विफल हुआ। कृपया सहायता के लिए codecraftchampions/9321379188 पर संपर्क करें।"
+            )
+            st.markdown(
+                f'<div class="cl-card-danger">⚠️ {APP_FAIL}</div>',
+                unsafe_allow_html=True,
+            )
+
+    st.caption(T_local["disclaimer"])
+
+
+# =================================================================
+# INLINE REPORT FORM RENDERER
+# =================================================================
+def render_report_inline(diag, lang):
+    """Render outbreak report form directly on the page."""
+    T_local = TEXT[lang]
+
+    st.markdown('<div class="cl-report-section">', unsafe_allow_html=True)
+    st.markdown(f"#### {T_local['report_dialog_title']}")
+    st.write(T_local["report_instructions"])
+
+    m = folium.Map(location=[20.5937, 78.9629], zoom_start=5, tiles="OpenStreetMap")
+    Draw(
+        export=False,
+        draw_options={
+            "polygon": True, "polyline": False, "rectangle": True,
+            "circle": False, "marker": True, "circlemarker": False,
+        },
+        edit_options={"edit": True, "remove": True},
+    ).add_to(m)
+
+    map_data = st_folium(
+        m, height=380, use_container_width=True, key="report_map",
+        returned_objects=["all_drawings", "last_active_drawing"],
+    )
+    st.caption(T_local["map_caption"])
+
+    drawn_geojson = None
+    center_lat = center_lng = None
+    if map_data:
+        drawings = map_data.get("all_drawings") or []
+        if drawings:
+            drawn_geojson = drawings
+            first    = drawings[0]
+            geom_type = first.get("geometry", {}).get("type", "")
+            coords    = first.get("geometry", {}).get("coordinates", [])
+            if geom_type == "Point" and coords:
+                center_lng, center_lat = coords[0], coords[1]
+            elif geom_type in ("Polygon", "MultiPolygon") and coords:
+                flat = coords[0] if geom_type == "Polygon" else coords[0][0]
+                center_lat = sum(c[1] for c in flat) / len(flat)
+                center_lng = sum(c[0] for c in flat) / len(flat)
+
+    if drawn_geojson:
+        st.success(f"✅ Farm mapped — {len(drawn_geojson)} shape(s) drawn.")
+
+    farmer_name = st.text_input(T_local["farmer_name_label"], key="report_farmer_name")
+    notes       = st.text_area(T_local["notes_label"], key="report_notes")
+
+    col_submit, col_close = st.columns(2)
+    with col_submit:
+        submit_clicked = st.button(T_local["submit_report"], type="primary", key="report_submit_btn")
+    with col_close:
+        if st.button(T_local["hide_report"], key="report_close_btn"):
+            st.session_state.show_report = False
+            st.rerun()
+
+    if submit_clicked:
+        if not farmer_name.strip():
+            st.warning(T_local["farmer_name_req"])
+        elif not drawn_geojson:
+            st.warning(T_local["no_polygon_warning"])
+        elif center_lat is None or center_lng is None:
+            st.warning(T_local["no_polygon_warning"])
+        elif supabase is None:
+            st.error(T_local["config_missing"])
+        else:
+            in_water = is_location_in_water(center_lat, center_lng)
+            if in_water is True:
+                st.error(T_local["water_location_error"])
+            else:
+                with st.spinner(T_local["submitting"]):
+                    try:
+                        gd       = st.session_state.gemini_disease
+                        conf     = diag.get("confidence", 0)
+                        ai_path  = conf < CONFIDENCE_THRESHOLD and bool(gd)
+
+                        final_disease = gd if ai_path else diag.get("disease", "")
+                        final_crop    = st.session_state.get("crop_input") or diag.get("crop", "")
+
+                        supabase.table("outbreak_reports").insert({
+                            "disease_class": final_disease,
+                            "crop":          final_crop,
+                            "disease":       final_disease,
+                            "confidence":    conf,
+                            "farmer_name":   farmer_name.strip(),
+                            "farmer_dif":    st.session_state.farmer_dif,
+                            "farm_geojson":  json.dumps(drawn_geojson),
+                            "center_lat":    center_lat,
+                            "center_lng":    center_lng,
+                            "notes":         notes or None,
+                            "language":      st.session_state.lang,
+                            "reported_at":   datetime.now(timezone.utc).isoformat(),
+                        }).execute()
+                        st.success(T_local["report_success"])
+                        st.session_state.show_report = False
+                        st.session_state.map_polygon = None
+                        st.rerun()
+                    except Exception as ex:
+                        st.error(f"{T_local['report_error']} ({ex})")
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+# =================================================================
+# HEADER — language toggle first
+# =================================================================
 T = TEXT[st.session_state.lang]
 
-# Language toggle on its own row so it is never clipped
 choice = st.radio(
     "🌐 Language / भाषा",
     options=["en", "hi"],
@@ -750,7 +910,6 @@ choice = st.radio(
     index=0 if st.session_state.lang == "en" else 1,
     key="lang_selector",
 )
-# Update both session state and T immediately after the widget
 st.session_state.lang = choice
 T = TEXT[st.session_state.lang]
 
@@ -762,7 +921,6 @@ st.divider()
 # SIGN-IN GATE
 # =================================================================
 if st.session_state.farmer_dif is None:
-    # FIX 2: smaller, tighter sign-in card
     st.markdown(f"""
     <div class="cl-signin-wrap">
         <div class="cl-signin-icon">🌾</div>
@@ -791,22 +949,20 @@ if st.session_state.farmer_dif is None:
             elif err is not None and err != "no_supabase":
                 st.error(T["dif_error"])
             else:
-                st.session_state.farmer_dif = dif_input
+                st.session_state.farmer_dif     = dif_input
                 st.session_state.farmer_credits = credits
                 st.rerun()
     st.stop()
 
 # =================================================================
 # SIGNED-IN HEADER BAR
-# FIX 8: credits come directly from session state which is updated
-#         immediately after each scan decrement — no refresh needed
 # =================================================================
 bar_col1, bar_col2, bar_col3 = st.columns([3, 3, 1])
 with bar_col1:
     st.markdown(f'<span class="cl-badge">✅ {T["signed_in_as"]}: {st.session_state.farmer_dif}</span>', unsafe_allow_html=True)
 with bar_col2:
     if st.session_state.farmer_credits is not None:
-        c = st.session_state.farmer_credits
+        c   = st.session_state.farmer_credits
         clr = "#22c55e" if c > 5 else ("#f59e0b" if c > 2 else "#ef4444")
         st.markdown(
             f'<div style="background:{clr};color:white;border-radius:8px;'
@@ -816,10 +972,12 @@ with bar_col2:
         )
 with bar_col3:
     if st.button("↩", help=T["signout"]):
-        for k in ["farmer_dif","farmer_credits","credits_exhausted","last_diagnosis",
-                  "gemini_disease","gemini_treatment_en","gemini_treatment_hi",
-                  "last_image_hash","show_camera","pending_camera_img"]:
-            st.session_state[k] = None if k not in ("credits_exhausted","show_camera") else False
+        for k in ["farmer_dif", "farmer_credits", "last_diagnosis",
+                  "gemini_disease", "gemini_treatment_en", "gemini_treatment_hi",
+                  "last_image_hash", "show_camera", "pending_camera_img"]:
+            st.session_state[k] = None
+        st.session_state.credits_exhausted = False
+        st.session_state.show_report       = False
         st.rerun()
 
 st.markdown("")
@@ -829,7 +987,7 @@ if st.session_state.credits_exhausted:
     st.stop()
 
 # =================================================================
-# FIX 3: INSTRUCTIONS CARD — single st.markdown, no wrapper gap
+# INSTRUCTIONS CARD
 # =================================================================
 tips_html = "".join(f"<li>{tip}</li>" for tip in T["instructions"])
 st.markdown(
@@ -840,23 +998,18 @@ st.markdown(
 
 # =================================================================
 # IMAGE INPUT
-# FIX 4: Camera is off by default; toggled with a button.
-# FIX 5: Camera shows a "Use This Photo" submit button after capture.
 # =================================================================
 uploaded_file = st.file_uploader(T["upload_label"], type=["jpg", "jpeg", "png"])
 
-# Camera toggle button
 cam_label = T["close_camera"] if st.session_state.show_camera else T["open_camera"]
 if st.button(cam_label, key="cam_toggle"):
-    st.session_state.show_camera = not st.session_state.show_camera
-    st.session_state.pending_camera_img = None
+    st.session_state.show_camera          = not st.session_state.show_camera
+    st.session_state.pending_camera_img   = None
     st.rerun()
 
-camera_file = None
 if st.session_state.show_camera:
     raw_cam = st.camera_input("", label_visibility="collapsed", key="camera_widget")
     if raw_cam is not None:
-        # Show preview + submit button
         prev_col, btn_col = st.columns([3, 1])
         with prev_col:
             st.image(raw_cam, width=480)
@@ -864,27 +1017,24 @@ if st.session_state.show_camera:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button(T["take_photo_btn"], type="primary", key="confirm_photo"):
                 st.session_state.pending_camera_img = raw_cam.getvalue()
-                st.session_state.show_camera = False
+                st.session_state.show_camera        = False
                 st.rerun()
 
 # Resolve final image source
 if st.session_state.pending_camera_img:
     image_bytes_final = st.session_state.pending_camera_img
-    image_source_label = "camera"
 elif uploaded_file:
     image_bytes_final = uploaded_file.getvalue()
-    image_source_label = "upload"
 else:
     image_bytes_final = None
-    image_source_label = None
 
 # =================================================================
 # DIAGNOSIS
 # =================================================================
 CONTACT_MSG_EN = "Model not responding. Please contact vajashivam8@gmail.com / 9321379188"
 CONTACT_MSG_HI = "मॉडल प्रतिक्रिया नहीं दे रहा। कृपया संपर्क करें: vajashivam8@gmail.com / 9321379188"
-APP_FAIL_EN = "Application failed. Please contact codecraftchampions/9321379188 for assistance"
-APP_FAIL_HI = "एप्लिकेशन विफल हुआ। कृपया सहायता के लिए codecraftchampions/9321379188 पर संपर्क करें।"
+APP_FAIL_EN    = "Application failed. Please contact codecraftchampions/9321379188 for assistance"
+APP_FAIL_HI    = "एप्लिकेशन विफल हुआ। कृपया सहायता के लिए codecraftchampions/9321379188 पर संपर्क करें।"
 CONFIDENCE_THRESHOLD = 95
 
 if image_bytes_final:
@@ -893,11 +1043,11 @@ if image_bytes_final:
         image = Image.open(io.BytesIO(image_bytes_final)).convert("RGB")
     except Exception:
         st.error("Could not read the image. Please try uploading again.")
-        image_bytes_final = None
         st.stop()
+
     st.image(image, caption=T["uploaded_caption"], width=680)
 
-    # New image — reset all diagnosis state, wait for crop name
+    # New image — reset all diagnosis state
     if img_hash != st.session_state.last_image_hash:
         if st.session_state.farmer_credits is not None and st.session_state.farmer_credits <= 0:
             st.session_state.credits_exhausted = True
@@ -908,9 +1058,10 @@ if image_bytes_final:
         st.session_state.gemini_treatment_hi = None
         st.session_state.ai_crop_confirmed   = False
         st.session_state.crop_input          = None
+        st.session_state.show_report         = False
         st.session_state.last_image_hash     = img_hash
 
-    # ── STEP 1: Ask crop name before doing anything ──
+    # ── STEP 1: Ask crop name before analysis ──
     if not st.session_state.ai_crop_confirmed:
         lang = st.session_state.lang
         crop_label       = "Which crop is this leaf from?" if lang == "en" else "यह किस फसल की पत्ती है?"
@@ -918,10 +1069,9 @@ if image_bytes_final:
         crop_btn         = "Analyse →" if lang == "en" else "विश्लेषण करें →"
         st.info(crop_label)
 
-        # Use st.form to avoid SessionInfo / rerun conflicts from manual st.rerun() inside callbacks
         with st.form(key="crop_form"):
-            crop_val = st.text_input(crop_label, placeholder=crop_placeholder,
-                                     label_visibility="collapsed")
+            crop_val  = st.text_input(crop_label, placeholder=crop_placeholder,
+                                      label_visibility="collapsed")
             submitted = st.form_submit_button(crop_btn, type="primary")
 
         if submitted:
@@ -929,7 +1079,6 @@ if image_bytes_final:
                 st.session_state.crop_input = crop_val.strip()
                 gkey = get_gemini_key()
 
-                # ── STEP 2: Single Gemini call (leaf + disease + treatment) ──
                 ai = None
                 if gkey:
                     spin_msg = "Analysing your photo..." if lang == "en" else "फोटो का विश्लेषण हो रहा है..."
@@ -942,7 +1091,7 @@ if image_bytes_final:
                 ai_en      = ai["en_points"] if ai else None
                 ai_hi      = ai["hi_points"] if ai else None
 
-                # ── STEP 3: Run TFLite only if it's a leaf ──
+                # Run TFLite only if it's a leaf
                 confidence, raw_class, crop_name_m, disease_name_m, info = 0, None, "", "", None
                 if is_leaf:
                     img_r = image.resize((IMG_SIZE, IMG_SIZE))
@@ -957,7 +1106,6 @@ if image_bytes_final:
                     crop_name_m, disease_name_m = format_class_name(raw_class)
                     info       = get_disease_info(raw_class)
 
-                # ── Store all results ──
                 st.session_state.last_diagnosis = {
                     "is_leaf":    is_leaf,
                     "ai_err":     ai_err,
@@ -971,12 +1119,6 @@ if image_bytes_final:
                 st.session_state.gemini_treatment_en = ai_en
                 st.session_state.gemini_treatment_hi = ai_hi
 
-                # ── Decrement credit ONLY if a result will actually be shown ──
-                # The rerun below guarantees that this stored result/error is
-                # rendered before the user sees the completed scan.
-                #
-                # Gemini failure = failed scan: show the error and DO NOT
-                # charge the farmer, regardless of what TFLite produced.
                 gemini_success = (
                     is_leaf
                     and not ai_err
@@ -987,9 +1129,6 @@ if image_bytes_final:
                 tflite_success = is_leaf and confidence >= CONFIDENCE_THRESHOLD
 
                 if ai_err:
-                    # The Gemini request itself failed — never charge the
-                    # farmer for this scan, even if the TFLite model produced
-                    # a high-confidence result on its own.
                     scan_success = False
                 else:
                     scan_success = gemini_success or tflite_success
@@ -1005,42 +1144,34 @@ if image_bytes_final:
                 if st.session_state.farmer_credits is not None and st.session_state.farmer_credits <= 0:
                     st.session_state.credits_exhausted = True
 
-                # Mark as confirmed, then immediately rerun so the result
-                # (or the Gemini error) is actually rendered.
-                #
-                # Without this rerun Streamlit finishes the button-click run
-                # immediately after the API call. That was why the credit could
-                # decrease while the user saw no result.
                 st.session_state.ai_crop_confirmed = True
                 st.rerun()
             else:
                 st.warning("Please enter the crop name." if lang == "en"
                            else "कृपया फसल का नाम दर्ज करें।")
 
-    # ── DISPLAY (only after crop name submitted and analysis done) ──
+    # ── DISPLAY results ──
     elif st.session_state.last_diagnosis is not None:
-        diag        = st.session_state.last_diagnosis
-        lang        = st.session_state.lang
-        is_leaf     = diag.get("is_leaf", True)
-        ai_err      = diag.get("ai_err")
-        confidence  = diag.get("confidence", 0)
-        crop_name_d = diag.get("crop", "")
-        disease_name= diag.get("disease", "")
-        info        = diag.get("info")
-        gd          = st.session_state.gemini_disease
+        diag         = st.session_state.last_diagnosis
+        lang         = st.session_state.lang
+        is_leaf      = diag.get("is_leaf", True)
+        ai_err       = diag.get("ai_err")
+        confidence   = diag.get("confidence", 0)
+        crop_name_d  = diag.get("crop", "")
+        disease_name = diag.get("disease", "")
+        info         = diag.get("info")
+        gd           = st.session_state.gemini_disease
 
         # ── NOT A LEAF ──
         if not is_leaf:
             msg = "Not a leaf photo" if lang == "en" else "यह पत्ती की फोटो नहीं है"
-            st.markdown(f'<div class="cl-disease-name">\u26a0\ufe0f {msg}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="cl-disease-name">⚠️ {msg}</div>', unsafe_allow_html=True)
             st.caption(T["disclaimer"])
 
-        # ── API ERROR (Gemini request failed — no credit was charged) ──
+        # ── API ERROR ──
         elif ai_err and not gd:
             st.subheader(T["diagnosis_title"])
-            st.error(
-                f'⚠️ {APP_FAIL_EN if lang == "en" else APP_FAIL_HI}'
-            )
+            st.error(f'⚠️ {APP_FAIL_EN if lang == "en" else APP_FAIL_HI}')
             st.caption(
                 "No scan credit was used for this failed attempt."
                 if lang == "en"
@@ -1048,272 +1179,52 @@ if image_bytes_final:
             )
             st.caption(T["disclaimer"])
 
-        # ── HIGH CONFIDENCE >=95%: TFLite result ──
+        # ── HIGH CONFIDENCE >=95% ──
         elif confidence >= CONFIDENCE_THRESHOLD:
             st.subheader(T["diagnosis_title"])
-            headline = f"{crop_name_d} \u2014 {disease_name}" if disease_name else crop_name_d
+            headline = f"{crop_name_d} — {disease_name}" if disease_name else crop_name_d
             st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
             st.progress(min(int(confidence), 100), text=f"{T['confidence_label']}: {confidence:.1f}%")
-            st.markdown("")
-            is_healthy = disease_name.strip().lower() == "healthy"
-            if is_healthy:
-                st.button(T["view_treatment"], key="open_treatment", type="primary",
-                          on_click=lambda: st.session_state.update(show_treatment=True))
-            else:
-                btn_col1, btn_col2 = st.columns(2)
-                with btn_col1:
-                    st.button(T["view_treatment"], key="open_treatment", type="primary",
-                              on_click=lambda: st.session_state.update(show_treatment=True))
-                with btn_col2:
-                    st.button(T["report_button"], key="open_report", type="secondary",
-                              on_click=lambda: st.session_state.update(show_report=True))
-            st.caption(T["disclaimer"])
 
-        # ── LOW CONFIDENCE <95%: Gemini result ──
+            # Treatment shown inline immediately
+            st.markdown("---")
+            render_treatment_inline(diag, lang)
+
+            # Report button only for diseased plants
+            is_healthy = disease_name.strip().lower() == "healthy"
+            if not is_healthy:
+                st.markdown("")
+                if st.button(T["report_button"], key="open_report_btn", type="secondary"):
+                    st.session_state.show_report = not st.session_state.show_report
+                    st.rerun()
+
+        # ── LOW CONFIDENCE <95% (Gemini result) ──
         else:
             st.subheader(T["diagnosis_title"])
             headline = gd if (gd and gd.lower() not in ("unknown",)) else (
                 "Unable to diagnose" if lang == "en" else "निदान संभव नहीं"
             )
             st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
-            st.markdown("")
+
+            # Treatment shown inline immediately
+            st.markdown("---")
+            render_treatment_inline(diag, lang)
+
+            # Report button only for diseased plants
             is_healthy = headline.strip().lower() == "healthy"
-            if is_healthy:
-                st.button(T["view_treatment"], key="open_treatment", type="primary",
-                          on_click=lambda: st.session_state.update(show_treatment=True))
-            else:
-                btn_col1, btn_col2 = st.columns(2)
-                with btn_col1:
-                    st.button(T["view_treatment"], key="open_treatment", type="primary",
-                              on_click=lambda: st.session_state.update(show_treatment=True))
-                with btn_col2:
-                    st.button(T["report_button"], key="open_report", type="secondary",
-                              on_click=lambda: st.session_state.update(show_report=True))
-            st.caption(T["disclaimer"])
+            if not is_healthy:
+                st.markdown("")
+                if st.button(T["report_button"], key="open_report_btn", type="secondary"):
+                    st.session_state.show_report = not st.session_state.show_report
+                    st.rerun()
+
+        # ── INLINE REPORT FORM (toggle) ──
+        if st.session_state.show_report and not is_leaf is False:
+            st.markdown("")
+            render_report_inline(diag, lang)
 
     if st.session_state.credits_exhausted:
         st.error(
-            f"### \U0001f6ab {T['credits_exhausted_title']}\n\n"
+            f"### 🚫 {T['credits_exhausted_title']}\n\n"
             f"{T['credits_exhausted_body']} **[agrifusion-web.vercel.app](https://agrifusion-web.vercel.app)**"
         )
-
-# =================================================================
-# 1. In your defaults dict, REPLACE show_report and show_treatment
-#    with a single key. Find the defaults dict and make this change:
-# =================================================================
-
-# REMOVE:
-#   "show_report": False,
-#   "show_treatment": False,
-# ADD:
-#   "active_dialog": None,
-
-# Also remove "show_report" and "show_treatment" from the sign-out
-# reset list and add "active_dialog" set to None instead.
-
-
-# =================================================================
-# 2. In the diagnosis display block, replace ALL four on_click
-#    lambdas on the two pairs of buttons (in both the >=95% and
-#    <95% sections):
-# =================================================================
-
-# "View Treatment" buttons — both instances:
-#   on_click=lambda: st.session_state.update(active_dialog="treatment")
-
-# "Report Outbreak" buttons — both instances:
-#   on_click=lambda: st.session_state.update(active_dialog="report")
-
-# Also make sure the healthy-plant branch (single button, no columns)
-# uses the same lambda:
-#   on_click=lambda: st.session_state.update(active_dialog="treatment")
-
-
-# =================================================================
-# 3. Replace EVERYTHING from "# TREATMENT ADVICE DIALOG" to the
-#    end of the file with the code below.
-#    Key fix: @st.dialog functions are defined at module level
-#    (unconditionally), then called conditionally at the bottom.
-# =================================================================
-
-# ── define dialogs at module level ──────────────────────────────
-
-@st.dialog(T["treatment_modal_title"], width="large")
-def treatment_dialog():
-    diag = st.session_state.last_diagnosis
-    if not diag:
-        st.session_state.active_dialog = None
-        st.rerun()
-        return
-
-    confidence = diag.get("confidence", 0)
-    info = diag.get("info")
-    gd = st.session_state.gemini_disease
-
-    modal_lang = st.radio(
-        T["modal_lang_label"],
-        options=["en", "hi"],
-        format_func=lambda x: "English" if x == "en" else "हिंदी",
-        horizontal=True,
-        index=0 if st.session_state.lang == "en" else 1,
-        key="treatment_modal_lang",
-    )
-
-    is_tflite_path = confidence >= CONFIDENCE_THRESHOLD and info is not None
-
-    if is_tflite_path:
-        crop_name_d = diag.get("crop", "")
-        disease_name = diag.get("disease", "")
-        headline = f"{crop_name_d} — {disease_name}" if disease_name else crop_name_d
-        st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
-
-        labels_map = {
-            "severity_":   ("Severity", "गंभीरता"),
-            "symptoms_":   ("Symptoms", "लक्षण"),
-            "prevention_": ("Prevention", "रोकथाम"),
-            "treatment_":  ("Treatment", "उपचार"),
-        }
-        for key, (label_en, label_hi) in labels_map.items():
-            label = label_en if modal_lang == "en" else label_hi
-            val = info.get(key + modal_lang, info.get(key + "en", "")) if info else ""
-            if val:
-                st.markdown(
-                    f'<div class="cl-treatment-box"><b>{label}:</b> {val}</div>',
-                    unsafe_allow_html=True,
-                )
-    else:
-        headline = gd if (gd and gd.lower() not in ("unknown",)) else (
-            "Unable to diagnose" if modal_lang == "en" else "निदान संभव नहीं"
-        )
-        st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
-        points = (
-            st.session_state.gemini_treatment_hi if modal_lang == "hi"
-            else st.session_state.gemini_treatment_en
-        )
-        if points:
-            for pt in points:
-                if pt.strip():
-                    st.markdown(
-                        f'<div class="cl-treatment-box">\u2022 {pt}</div>',
-                        unsafe_allow_html=True,
-                    )
-        else:
-            st.markdown(
-                f'<div class="cl-card-danger">\u26a0\ufe0f '
-                f'{APP_FAIL_EN if modal_lang == "en" else APP_FAIL_HI}</div>',
-                unsafe_allow_html=True,
-            )
-
-    st.caption(T["disclaimer"])
-    if st.button(T["close"], key="close_treatment_modal"):
-        st.session_state.active_dialog = None
-        st.rerun()
-
-
-@st.dialog(T["report_dialog_title"], width="large")
-def report_dialog():
-    diagnosis = st.session_state.last_diagnosis
-    if not diagnosis:
-        st.session_state.active_dialog = None
-        st.rerun()
-        return
-
-    st.write(T["report_instructions"])
-
-    m = folium.Map(location=[20.5937, 78.9629], zoom_start=5, tiles="OpenStreetMap")
-    Draw(
-        export=False,
-        draw_options={
-            "polygon": True, "polyline": False, "rectangle": True,
-            "circle": False, "marker": True, "circlemarker": False,
-        },
-        edit_options={"edit": True, "remove": True},
-    ).add_to(m)
-
-    map_data = st_folium(
-        m, height=380, use_container_width=True, key="report_map",
-        returned_objects=["all_drawings", "last_active_drawing"],
-    )
-    st.caption(T["map_caption"])
-
-    drawn_geojson = None
-    center_lat = center_lng = None
-    if map_data:
-        drawings = map_data.get("all_drawings") or []
-        if drawings:
-            drawn_geojson = drawings
-            first = drawings[0]
-            geom_type = first.get("geometry", {}).get("type", "")
-            coords = first.get("geometry", {}).get("coordinates", [])
-            if geom_type == "Point" and coords:
-                center_lng, center_lat = coords[0], coords[1]
-            elif geom_type in ("Polygon", "MultiPolygon") and coords:
-                flat = coords[0] if geom_type == "Polygon" else coords[0][0]
-                center_lat = sum(c[1] for c in flat) / len(flat)
-                center_lng = sum(c[0] for c in flat) / len(flat)
-
-    if drawn_geojson:
-        st.success(f"✅ Farm mapped — {len(drawn_geojson)} shape(s) drawn.")
-
-    farmer_name = st.text_input(T["farmer_name_label"])
-    notes = st.text_area(T["notes_label"])
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        submit_clicked = st.button(T["submit_report"], type="primary")
-    with col_b:
-        if st.button(T["close"]):
-            st.session_state.active_dialog = None
-            st.rerun()
-
-    if submit_clicked:
-        if not farmer_name.strip():
-            st.warning(T["farmer_name_req"])
-        elif not drawn_geojson:
-            st.warning(T["no_polygon_warning"])
-        elif center_lat is None or center_lng is None:
-            st.warning(T["no_polygon_warning"])
-        elif supabase is None:
-            st.error(T["config_missing"])
-        else:
-            in_water = is_location_in_water(center_lat, center_lng)
-            if in_water is True:
-                st.error(T["water_location_error"])
-                st.stop()
-            with st.spinner(T["submitting"]):
-                try:
-                    gd   = st.session_state.gemini_disease
-                    conf = diagnosis.get("confidence", 0)
-                    ai_path = conf < CONFIDENCE_THRESHOLD and bool(gd)
-
-                    final_disease = gd if ai_path else diagnosis.get("disease", "")
-                    final_crop    = st.session_state.get("crop_input") or diagnosis.get("crop", "")
-
-                    supabase.table("outbreak_reports").insert({
-                        "disease_class": final_disease,
-                        "crop":          final_crop,
-                        "disease":       final_disease,
-                        "confidence":    conf,
-                        "farmer_name":   farmer_name.strip(),
-                        "farmer_dif":    st.session_state.farmer_dif,
-                        "farm_geojson":  json.dumps(drawn_geojson),
-                        "center_lat":    center_lat,
-                        "center_lng":    center_lng,
-                        "notes":         notes or None,
-                        "language":      st.session_state.lang,
-                        "reported_at":   datetime.now(timezone.utc).isoformat(),
-                    }).execute()
-                    st.success(T["report_success"])
-                    st.session_state.active_dialog = None
-                    st.session_state.map_polygon = None
-                    st.rerun()
-                except Exception as ex:
-                    st.error(f"{T['report_error']} ({ex})")
-
-
-# ── call the right dialog based on active_dialog ────────────────
-
-if st.session_state.get("active_dialog") == "treatment" and st.session_state.last_diagnosis:
-    treatment_dialog()
-elif st.session_state.get("active_dialog") == "report" and st.session_state.last_diagnosis:
-    report_dialog()
