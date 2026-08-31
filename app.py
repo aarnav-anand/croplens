@@ -952,6 +952,10 @@ if st.session_state.farmer_dif is None:
                 st.session_state.farmer_dif     = dif_input
                 st.session_state.farmer_credits = credits
                 st.rerun()
+    # Additional option to report outbreaks
+    if st.button("Report outbreaks"):
+        st.markdown("[Open CropRadar Outbreak Report] (https://cropradar.vercel.app)", unsafe_allow_html=True)
+    st.stop()
     st.stop()
 
 # =================================================================
@@ -1031,10 +1035,10 @@ else:
 # =================================================================
 # DIAGNOSIS
 # =================================================================
-CONTACT_MSG_EN = "Model not responding, this maybe due to the fact that the app is hosted on a free server, and can take time to restart again, please try again, no credit has been deducted. If this continues, please contact vajashivam8@gmail.com / 9321379188"
-CONTACT_MSG_HI = "मॉडल प्रतिक्रिया नहीं दे रहा,ऐसा संभवतः इसलिए हो सकता है क्योंकि ऐप एक निःशुल्क सर्वर पर होस्ट किया गया है और उसे दोबारा शुरू होने में कुछ समय लग सकता है। कृपया पुनः प्रयास करें। आपका कोई क्रेडिट नहीं काटा गया है।यदि समस्या बनी रहती है, तो कृपया कृपया संपर्क करें: vajashivam8@gmail.com / 9321379188"
-APP_FAIL_EN    = "Model not responding, this maybe due to the fact that the app is hosted on a free server, and can take time to restart again, please try again, no credit has been deducted. If this continues, please contact vajashivam8@gmail.com / 9321379188"
-APP_FAIL_HI    = "मॉडल प्रतिक्रिया नहीं दे रहा,ऐसा संभवतः इसलिए हो सकता है क्योंकि ऐप एक निःशुल्क सर्वर पर होस्ट किया गया है और उसे दोबारा शुरू होने में कुछ समय लग सकता है। कृपया पुनः प्रयास करें। आपका कोई क्रेडिट नहीं काटा गया है।यदि समस्या बनी रहती है, तो कृपया कृपया संपर्क करें: vajashivam8@gmail.com / 9321379188"
+CONTACT_MSG_EN = "स्कैन विफल हो गया है। ऐसा इसलिए हो सकता है क्योंकि ऐप एक मुफ़्त सर्वर पर होस्ट किया गया है, जिसे दोबारा शुरू होने में कुछ समय लग सकता है। कृपया दोबारा प्रयास करें। यदि समस्या लगातार बनी रहत
+CONTACT_MSG_HI = "मॉडल प्रतिक्रिया नहीं दे रहा। कृपया संपर्क करें: vajashivam8@gmail.com / 9321379188"
+APP_FAIL_EN    = "Application failed. Please contact codecraftchampions/9321379188 for assistance"
+APP_FAIL_HI    = "एप्लिकेशन विफल हुआ। कृपया सहायता के लिए codecraftchampions/9321379188 पर संपर्क करें।"
 CONFIDENCE_THRESHOLD = 95
 
 if image_bytes_final:
