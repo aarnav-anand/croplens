@@ -954,7 +954,7 @@ if st.session_state.farmer_dif is None:
                 st.rerun()
     # Additional option to report outbreaks
     if st.button("Report outbreaks"):
-        st.markdown("[Open CropRadar Outbreak Report] (https://cropradar.vercel.app)", unsafe_allow_html=True)
+    st.markdown("<script>window.location.href='https://cropradar.vercel.app';</script>", unsafe_allow_html=True)
     st.stop()
     st.stop()
 
