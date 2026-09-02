@@ -163,8 +163,8 @@ TEXT = {
         "take_photo_btn": "✅ Use This Photo",
         "uploaded_caption": "Your photo",
         "diagnosing": "Analyzing your leaf...",
-        "gemini_analyzing": "Consulting Gemini AI...",
-        "mistral_analyzing": "Gemini unavailable — consulting Mistral AI...",
+        "gemini_analyzing": "Consulting AI...",
+        "mistral_analyzing": "AI model unavailable — consulting fallback AI model...",
         "diagnosis_title": "Diagnosis",
         "confidence_label": "Confidence",
         "low_confidence_warning": "Low confidence — AI-assisted diagnosis shown below.",
@@ -865,7 +865,7 @@ def render_treatment_inline(diag, lang):
         provider = st.session_state.get("ai_provider")
         if points:
             if provider == "mistral":
-                st.caption("🤖 Diagnosis powered by Mistral AI (Gemini unavailable)")
+                st.caption("🤖 Diagnosis powered by AI")
             for pt in points:
                 if pt.strip():
                     st.markdown(
