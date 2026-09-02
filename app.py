@@ -163,7 +163,8 @@ TEXT = {
         "take_photo_btn": "✅ Use This Photo",
         "uploaded_caption": "Your photo",
         "diagnosing": "Analyzing your leaf...",
-        "gemini_analyzing": "Low confidence — consulting Gemini AI...",
+        "gemini_analyzing": "Consulting Gemini AI...",
+        "mistral_analyzing": "Gemini unavailable — consulting Mistral AI...",
         "diagnosis_title": "Diagnosis",
         "confidence_label": "Confidence",
         "low_confidence_warning": "Low confidence — AI-assisted diagnosis shown below.",
@@ -227,7 +228,8 @@ TEXT = {
         "take_photo_btn": "✅ यह फोटो उपयोग करें",
         "uploaded_caption": "आपकी फोटो",
         "diagnosing": "आपकी पत्ती का विश्लेषण हो रहा है...",
-        "gemini_analyzing": "कम विश्वसनीयता — Gemini AI से निदान लिया जा रहा है...",
+        "gemini_analyzing": "Gemini AI से निदान लिया जा रहा है...",
+        "mistral_analyzing": "Gemini उपलब्ध नहीं — Mistral AI से निदान लिया जा रहा है...",
         "diagnosis_title": "निदान",
         "confidence_label": "विश्वसनीयता",
         "low_confidence_warning": "कम विश्वसनीयता — एआई-सहायता प्राप्त निदान नीचे दिखाया गया है।",
@@ -530,6 +532,7 @@ defaults = {
     "gemini_disease": None,
     "gemini_treatment_en": None,
     "gemini_treatment_hi": None,
+    "ai_provider": None,          # tracks which AI provider succeeded: "gemini" | "mistral" | None
     "last_image_hash": None,
     "show_camera": False,
     "pending_camera_img": None,
@@ -603,14 +606,12 @@ def image_to_base64(pil_image: Image.Image) -> str:
     pil_image.save(buf, format="JPEG", quality=85)
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
-def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = ""):
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-3.5-flash:generateContent?key={gemini_key}"
-    )
-    b64 = image_to_base64(pil_image)
+# =================================================================
+# SHARED PROMPT BUILDER
+# =================================================================
+def _build_diagnosis_prompt(crop_name: str) -> str:
     crop_ctx = f"The farmer says this is a {crop_name} leaf. " if crop_name else ""
-    prompt = (
+    return (
         f"You are an expert plant pathologist and agricultural advisor.\n"
         f"{crop_ctx}"
         "Look at this image and respond using EXACTLY the format below — "
@@ -636,6 +637,57 @@ def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = "")
         "- If unsure, commit to the most likely disease based on visible symptoms.\n"
         "- Do not add any text outside this format."
     )
+
+def _parse_ai_response(text: str) -> dict:
+    """Parse the shared structured format returned by Gemini or Mistral."""
+    is_leaf = True
+    disease = None
+    en_points, hi_points = [], []
+    current = None
+
+    for line in text.splitlines():
+        l = line.strip()
+        if l.upper().startswith("IS_LEAF:"):
+            val = l.split(":", 1)[1].strip().upper()
+            is_leaf = val.startswith("Y")
+        elif l.upper().startswith("DISEASE:"):
+            disease = l.split(":", 1)[1].strip()
+        elif l.upper().startswith("ENGLISH"):
+            current = "en"
+        elif l.upper().startswith("HINDI"):
+            current = "hi"
+        elif l and l[0] in "-•*":
+            clean = l.lstrip("-•* ").strip()
+            if clean:
+                if current == "en":
+                    en_points.append(clean)
+                elif current == "hi":
+                    hi_points.append(clean)
+        elif l and len(l) > 2 and l[0].isdigit() and l[1] in ".):":
+            clean = l[2:].strip()
+            if clean:
+                if current == "en":
+                    en_points.append(clean)
+                elif current == "hi":
+                    hi_points.append(clean)
+
+    return {
+        "is_leaf":   is_leaf,
+        "disease":   disease,
+        "en_points": en_points or None,
+        "hi_points": hi_points or None,
+    }
+
+# =================================================================
+# GEMINI ANALYSE
+# =================================================================
+def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = "") -> dict:
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.0-flash:generateContent?key={gemini_key}"
+    )
+    b64    = image_to_base64(pil_image)
+    prompt = _build_diagnosis_prompt(crop_name)
     payload = {"contents": [{"parts": [
         {"inlineData": {"mimeType": "image/jpeg", "data": b64}},
         {"text": prompt}
@@ -661,47 +713,14 @@ def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = "")
         if not text:
             raise RuntimeError("Gemini returned an empty response.")
 
-        is_leaf = True
-        disease = None
-        en_points, hi_points = [], []
-        current = None
+        parsed = _parse_ai_response(text)
 
-        for line in text.splitlines():
-            l = line.strip()
-            if l.upper().startswith("IS_LEAF:"):
-                val = l.split(":", 1)[1].strip().upper()
-                is_leaf = val.startswith("Y")
-            elif l.upper().startswith("DISEASE:"):
-                disease = l.split(":", 1)[1].strip()
-            elif l.upper().startswith("ENGLISH"):
-                current = "en"
-            elif l.upper().startswith("HINDI"):
-                current = "hi"
-            elif l and l[0] in "-•*":
-                clean = l.lstrip("-•* ").strip()
-                if clean:
-                    if current == "en":
-                        en_points.append(clean)
-                    elif current == "hi":
-                        hi_points.append(clean)
-            elif l and len(l) > 2 and l[0].isdigit() and l[1] in ".):":
-                clean = l[2:].strip()
-                if clean:
-                    if current == "en":
-                        en_points.append(clean)
-                    elif current == "hi":
-                        hi_points.append(clean)
-
-        if is_leaf and (not disease or not en_points or not hi_points):
+        if parsed["is_leaf"] and (
+            not parsed["disease"] or not parsed["en_points"] or not parsed["hi_points"]
+        ):
             raise RuntimeError("Gemini returned an incomplete diagnosis.")
 
-        return {
-            "is_leaf":   is_leaf,
-            "disease":   disease,
-            "en_points": en_points or None,
-            "hi_points": hi_points or None,
-            "error":     None,
-        }
+        return {**parsed, "error": None}
 
     except Exception as e:
         return {
@@ -712,31 +731,104 @@ def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = "")
             "error":     str(e),
         }
 
+# =================================================================
+# MISTRAL ANALYSE  (fallback when Gemini fails)
+# Uses Mistral's vision-capable model via the official chat completions endpoint.
+# Secrets key: st.secrets["mistral"]["api_key"]
+# =================================================================
+def mistral_analyse(pil_image: Image.Image, mistral_key: str, crop_name: str = "") -> dict:
+    url    = "https://api.mistral.ai/v1/chat/completions"
+    b64    = image_to_base64(pil_image)
+    prompt = _build_diagnosis_prompt(crop_name)
 
-def get_gemini_key():
+    payload = {
+        "model": "pixtral-12b-2409",   # Mistral's multimodal / vision model
+        "max_tokens": 1024,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": f"data:image/jpeg;base64,{b64}",
+                    },
+                    {
+                        "type": "text",
+                        "text": prompt,
+                    },
+                ],
+            }
+        ],
+    }
+
+    try:
+        resp = requests.post(
+            url,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {mistral_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+
+        data    = resp.json()
+        choices = data.get("choices") or []
+        if not choices:
+            raise RuntimeError("Mistral returned no choices.")
+
+        text = (choices[0].get("message") or {}).get("content", "").strip()
+        if not text:
+            raise RuntimeError("Mistral returned an empty response.")
+
+        parsed = _parse_ai_response(text)
+
+        if parsed["is_leaf"] and (
+            not parsed["disease"] or not parsed["en_points"] or not parsed["hi_points"]
+        ):
+            raise RuntimeError("Mistral returned an incomplete diagnosis.")
+
+        return {**parsed, "error": None}
+
+    except Exception as e:
+        return {
+            "is_leaf":   True,
+            "disease":   None,
+            "en_points": None,
+            "hi_points": None,
+            "error":     str(e),
+        }
+
+# =================================================================
+# KEY HELPERS
+# =================================================================
+def get_gemini_key() -> str | None:
     try:
         return st.secrets["gemini"]["api_key"]
     except Exception:
         return None
 
+def get_mistral_key() -> str | None:
+    try:
+        return st.secrets["mistral"]["api_key"]
+    except Exception:
+        return None
 
 # =================================================================
 # INLINE TREATMENT RENDERER
-# Called after diagnosis is ready — no modal, no button needed.
 # =================================================================
 def render_treatment_inline(diag, lang):
     """Render treatment & care advice directly on the page."""
-    confidence  = diag.get("confidence", 0)
-    info        = diag.get("info")
-    gd          = st.session_state.gemini_disease
-    T_local     = TEXT[lang]
+    confidence = diag.get("confidence", 0)
+    info       = diag.get("info")
+    T_local    = TEXT[lang]
 
     st.markdown(
         f'<div class="cl-treatment-section"><h4>{T_local["treatment_title"]}</h4></div>',
         unsafe_allow_html=True,
     )
 
-    # Language toggle inside the treatment block
     modal_lang = st.radio(
         T_local["modal_lang_label"],
         options=["en", "hi"],
@@ -749,9 +841,6 @@ def render_treatment_inline(diag, lang):
     is_tflite_path = confidence >= CONFIDENCE_THRESHOLD and info is not None
 
     if is_tflite_path:
-        crop_name_d  = diag.get("crop", "")
-        disease_name = diag.get("disease", "")
-
         labels_map = {
             "severity_":   ("Severity",   "गंभीरता"),
             "symptoms_":   ("Symptoms",   "लक्षण"),
@@ -767,12 +856,15 @@ def render_treatment_inline(diag, lang):
                     unsafe_allow_html=True,
                 )
     else:
-        # Gemini path
+        # AI path (Gemini or Mistral)
         points = (
             st.session_state.gemini_treatment_hi if modal_lang == "hi"
             else st.session_state.gemini_treatment_en
         )
+        provider = st.session_state.get("ai_provider")
         if points:
+            if provider == "mistral":
+                st.caption("🤖 Diagnosis powered by Mistral AI (Gemini unavailable)")
             for pt in points:
                 if pt.strip():
                     st.markdown(
@@ -826,13 +918,13 @@ def render_report_inline(diag, lang):
         drawings = map_data.get("all_drawings") or []
         if drawings:
             drawn_geojson = drawings
-            first    = drawings[0]
+            first     = drawings[0]
             geom_type = first.get("geometry", {}).get("type", "")
             coords    = first.get("geometry", {}).get("coordinates", [])
             if geom_type == "Point" and coords:
                 center_lng, center_lat = coords[0], coords[1]
             elif geom_type in ("Polygon", "MultiPolygon") and coords:
-                flat = coords[0] if geom_type == "Polygon" else coords[0][0]
+                flat       = coords[0] if geom_type == "Polygon" else coords[0][0]
                 center_lat = sum(c[1] for c in flat) / len(flat)
                 center_lng = sum(c[0] for c in flat) / len(flat)
 
@@ -866,11 +958,10 @@ def render_report_inline(diag, lang):
             else:
                 with st.spinner(T_local["submitting"]):
                     try:
-                        gd       = st.session_state.gemini_disease
-                        conf     = diag.get("confidence", 0)
-                        ai_path  = conf < CONFIDENCE_THRESHOLD and bool(gd)
+                        conf    = diag.get("confidence", 0)
+                        ai_path = conf < CONFIDENCE_THRESHOLD and bool(st.session_state.gemini_disease)
 
-                        final_disease = gd if ai_path else diag.get("disease", "")
+                        final_disease = st.session_state.gemini_disease if ai_path else diag.get("disease", "")
                         final_crop    = st.session_state.get("crop_input") or diag.get("crop", "")
 
                         supabase.table("outbreak_reports").insert({
@@ -885,6 +976,7 @@ def render_report_inline(diag, lang):
                             "center_lng":    center_lng,
                             "notes":         notes or None,
                             "language":      st.session_state.lang,
+                            "ai_provider":   st.session_state.get("ai_provider"),
                             "reported_at":   datetime.now(timezone.utc).isoformat(),
                         }).execute()
                         st.success(T_local["report_success"])
@@ -952,7 +1044,6 @@ if st.session_state.farmer_dif is None:
                 st.session_state.farmer_dif     = dif_input
                 st.session_state.farmer_credits = credits
                 st.rerun()
-    # Additional option to report outbreaks
     st.link_button("Report outbreaks", "https://cropradar.vercel.app")
     st.stop()
 
@@ -976,7 +1067,7 @@ with bar_col3:
     if st.button("↩", help=T["signout"]):
         for k in ["farmer_dif", "farmer_credits", "last_diagnosis",
                   "gemini_disease", "gemini_treatment_en", "gemini_treatment_hi",
-                  "last_image_hash", "show_camera", "pending_camera_img"]:
+                  "ai_provider", "last_image_hash", "show_camera", "pending_camera_img"]:
             st.session_state[k] = None
         st.session_state.credits_exhausted = False
         st.session_state.show_report       = False
@@ -1005,8 +1096,8 @@ uploaded_file = st.file_uploader(T["upload_label"], type=["jpg", "jpeg", "png"])
 
 cam_label = T["close_camera"] if st.session_state.show_camera else T["open_camera"]
 if st.button(cam_label, key="cam_toggle"):
-    st.session_state.show_camera          = not st.session_state.show_camera
-    st.session_state.pending_camera_img   = None
+    st.session_state.show_camera        = not st.session_state.show_camera
+    st.session_state.pending_camera_img = None
     st.rerun()
 
 if st.session_state.show_camera:
@@ -1033,10 +1124,8 @@ else:
 # =================================================================
 # DIAGNOSIS
 # =================================================================
-CONTACT_MSG_EN = "स्कैन विफल हो गया है। ऐसा इसलिए हो सकता है क्योंकि ऐप एक मुफ़्त सर्वर पर होस्ट किया गया है, जिसे दोबारा शुरू होने में कुछ समय लग सकता है। कृपया दोबारा प्रयास करें। यदि समस्या लगातार बनी रहत कृपया सहायता के लिए codecraftchampions/9321379188 पर संपर्क करें।"
-CONTACT_MSG_HI = "मॉडल प्रतिक्रिया नहीं दे रहा। कृपया संपर्क करें: vajashivam8@gmail.com / 9321379188"
-APP_FAIL_EN    = "Application failed. Please contact codecraftchampions/9321379188 for assistance"
-APP_FAIL_HI    = "एप्लिकेशन विफल हुआ। कृपया सहायता के लिए codecraftchampions/9321379188 पर संपर्क करें।"
+APP_FAIL_EN = "Application failed. Please contact codecraftchampions/9321379188 for assistance"
+APP_FAIL_HI = "एप्लिकेशन विफल हुआ। कृपया सहायता के लिए codecraftchampions/9321379188 पर संपर्क करें।"
 CONFIDENCE_THRESHOLD = 95
 
 if image_bytes_final:
@@ -1058,6 +1147,7 @@ if image_bytes_final:
         st.session_state.gemini_disease      = None
         st.session_state.gemini_treatment_en = None
         st.session_state.gemini_treatment_hi = None
+        st.session_state.ai_provider         = None
         st.session_state.ai_crop_confirmed   = False
         st.session_state.crop_input          = None
         st.session_state.show_report         = False
@@ -1080,20 +1170,42 @@ if image_bytes_final:
             if crop_val.strip():
                 st.session_state.crop_input = crop_val.strip()
                 gkey = get_gemini_key()
+                mkey = get_mistral_key()
 
-                ai = None
+                ai          = None
+                ai_provider = None
+
+                # ── Try Gemini first ──
                 if gkey:
-                    spin_msg = "Analysing your photo..." if lang == "en" else "फोटो का विश्लेषण हो रहा है..."
+                    spin_msg = T["gemini_analyzing"]
                     with st.spinner(spin_msg):
                         ai = gemini_analyse(image, gkey, crop_val.strip())
 
+                    if ai and not ai["error"] and ai.get("disease") and ai.get("en_points"):
+                        ai_provider = "gemini"
+                    else:
+                        # Gemini failed — fall through to Mistral
+                        ai = None
+
+                # ── Mistral fallback ──
+                if ai is None and mkey:
+                    spin_msg = T["mistral_analyzing"]
+                    with st.spinner(spin_msg):
+                        ai = mistral_analyse(image, mkey, crop_val.strip())
+
+                    if ai and not ai["error"] and ai.get("disease") and ai.get("en_points"):
+                        ai_provider = "mistral"
+                    else:
+                        ai = None   # both failed
+
+                # ── Extract AI results (may be None if both failed) ──
                 is_leaf    = ai["is_leaf"]   if ai else True
-                ai_err     = ai["error"]     if ai else "No API key configured"
+                ai_err     = ai["error"]     if ai else "Both Gemini and Mistral unavailable"
                 ai_disease = ai["disease"]   if ai else None
                 ai_en      = ai["en_points"] if ai else None
                 ai_hi      = ai["hi_points"] if ai else None
 
-                # Run TFLite only if it's a leaf
+                # ── Run TFLite only if it's a leaf ──
                 confidence, raw_class, crop_name_m, disease_name_m, info = 0, None, "", "", None
                 if is_leaf:
                     img_r = image.resize((IMG_SIZE, IMG_SIZE))
@@ -1120,20 +1232,19 @@ if image_bytes_final:
                 st.session_state.gemini_disease      = ai_disease
                 st.session_state.gemini_treatment_en = ai_en
                 st.session_state.gemini_treatment_hi = ai_hi
+                st.session_state.ai_provider         = ai_provider
 
                 gemini_success = (
                     is_leaf
-                    and not ai_err
+                    and ai_provider is not None   # either Gemini or Mistral succeeded
                     and bool(ai_disease)
                     and bool(ai_en)
                     and bool(ai_hi)
                 )
                 tflite_success = is_leaf and confidence >= CONFIDENCE_THRESHOLD
 
-                if ai_err:
-                    scan_success = False
-                else:
-                    scan_success = gemini_success or tflite_success
+                # Only count as a used scan if at least one path succeeded
+                scan_success = gemini_success or tflite_success
 
                 if scan_success and st.session_state.farmer_credits is not None and supabase is not None:
                     new_c = decrement_credits(
@@ -1170,8 +1281,8 @@ if image_bytes_final:
             st.markdown(f'<div class="cl-disease-name">⚠️ {msg}</div>', unsafe_allow_html=True)
             st.caption(T["disclaimer"])
 
-        # ── API ERROR ──
-        elif ai_err and not gd:
+        # ── BOTH APIs FAILED AND TFLITE ALSO LOW CONFIDENCE ──
+        elif ai_err and not gd and confidence < CONFIDENCE_THRESHOLD:
             st.subheader(T["diagnosis_title"])
             st.error(f'⚠️ {APP_FAIL_EN if lang == "en" else APP_FAIL_HI}')
             st.caption(
@@ -1181,18 +1292,16 @@ if image_bytes_final:
             )
             st.caption(T["disclaimer"])
 
-        # ── HIGH CONFIDENCE >=95% ──
+        # ── HIGH CONFIDENCE TFLite >=95% ──
         elif confidence >= CONFIDENCE_THRESHOLD:
             st.subheader(T["diagnosis_title"])
             headline = f"{crop_name_d} — {disease_name}" if disease_name else crop_name_d
             st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
             st.progress(min(int(confidence), 100), text=f"{T['confidence_label']}: {confidence:.1f}%")
 
-            # Treatment shown inline immediately
             st.markdown("---")
             render_treatment_inline(diag, lang)
 
-            # Report button only for diseased plants
             is_healthy = disease_name.strip().lower() == "healthy"
             if not is_healthy:
                 st.markdown("")
@@ -1200,7 +1309,7 @@ if image_bytes_final:
                     st.session_state.show_report = not st.session_state.show_report
                     st.rerun()
 
-        # ── LOW CONFIDENCE <95% (Gemini result) ──
+        # ── LOW CONFIDENCE — show AI result (Gemini or Mistral) ──
         else:
             st.subheader(T["diagnosis_title"])
             headline = gd if (gd and gd.lower() not in ("unknown",)) else (
@@ -1208,11 +1317,9 @@ if image_bytes_final:
             )
             st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
 
-            # Treatment shown inline immediately
             st.markdown("---")
             render_treatment_inline(diag, lang)
 
-            # Report button only for diseased plants
             is_healthy = headline.strip().lower() == "healthy"
             if not is_healthy:
                 st.markdown("")
@@ -1221,7 +1328,7 @@ if image_bytes_final:
                     st.rerun()
 
         # ── INLINE REPORT FORM (toggle) ──
-        if st.session_state.show_report and not is_leaf is False:
+        if st.session_state.show_report and is_leaf:
             st.markdown("")
             render_report_inline(diag, lang)
 
