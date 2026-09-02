@@ -684,7 +684,7 @@ def _parse_ai_response(text: str) -> dict:
 def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = "") -> dict:
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-2.0-flash:generateContent?key={gemini_key}"
+        f"gemini-3.5-flash:generateContent?key={gemini_key}"
     )
     b64    = image_to_base64(pil_image)
     prompt = _build_diagnosis_prompt(crop_name)
@@ -749,8 +749,9 @@ def mistral_analyse(pil_image: Image.Image, mistral_key: str, crop_name: str = "
                 "role": "user",
                 "content": [
                     {
+                        # Mistral requires image_url to be an object {"url": "..."}, not a plain string
                         "type": "image_url",
-                        "image_url": f"data:image/jpeg;base64,{b64}",
+                        "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
                     },
                     {
                         "type": "text",
@@ -1172,35 +1173,40 @@ if image_bytes_final:
                 gkey = get_gemini_key()
                 mkey = get_mistral_key()
 
-                ai          = None
-                ai_provider = None
+                ai              = None
+                ai_provider     = None
+                gemini_err_log  = None   # captured for debug display
+                mistral_err_log = None   # captured for debug display
 
                 # ── Try Gemini first ──
                 if gkey:
-                    spin_msg = T["gemini_analyzing"]
-                    with st.spinner(spin_msg):
+                    with st.spinner(T["gemini_analyzing"]):
                         ai = gemini_analyse(image, gkey, crop_val.strip())
 
                     if ai and not ai["error"] and ai.get("disease") and ai.get("en_points"):
                         ai_provider = "gemini"
                     else:
-                        # Gemini failed — fall through to Mistral
-                        ai = None
+                        gemini_err_log = (ai or {}).get("error", "Unknown Gemini error")
+                        ai = None   # fall through to Mistral
 
                 # ── Mistral fallback ──
                 if ai is None and mkey:
-                    spin_msg = T["mistral_analyzing"]
-                    with st.spinner(spin_msg):
+                    with st.spinner(T["mistral_analyzing"]):
                         ai = mistral_analyse(image, mkey, crop_val.strip())
 
                     if ai and not ai["error"] and ai.get("disease") and ai.get("en_points"):
                         ai_provider = "mistral"
                     else:
+                        mistral_err_log = (ai or {}).get("error", "Unknown Mistral error")
                         ai = None   # both failed
 
                 # ── Extract AI results (may be None if both failed) ──
                 is_leaf    = ai["is_leaf"]   if ai else True
-                ai_err     = ai["error"]     if ai else "Both Gemini and Mistral unavailable"
+                ai_err     = (
+                    f"Gemini: {gemini_err_log} | Mistral: {mistral_err_log}"
+                    if (gemini_err_log or mistral_err_log)
+                    else "No API keys configured"
+                )
                 ai_disease = ai["disease"]   if ai else None
                 ai_en      = ai["en_points"] if ai else None
                 ai_hi      = ai["hi_points"] if ai else None
@@ -1290,6 +1296,16 @@ if image_bytes_final:
                 if lang == "en"
                 else "इस असफल प्रयास के लिए कोई स्कैन क्रेडिट नहीं काटा गया।"
             )
+            # Debug expander — shows raw error so you can diagnose API issues
+            with st.expander("🔧 Debug info (for developers)", expanded=False):
+                gkey_present = bool(get_gemini_key())
+                mkey_present = bool(get_mistral_key())
+                st.markdown(f"""
+**Gemini key configured:** `{gkey_present}`  
+**Mistral key configured:** `{mkey_present}`  
+**TFLite confidence:** `{confidence:.2f}%`  
+**Last error:** `{ai_err}`
+""")
             st.caption(T["disclaimer"])
 
         # ── HIGH CONFIDENCE TFLite >=95% ──
