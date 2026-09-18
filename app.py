@@ -37,197 +37,194 @@ st.set_page_config(
 SHOW_CLOSING_PAGE = True
 
 if SHOW_CLOSING_PAGE:
-    st.markdown("""
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
+    st.markdown("""<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
 
-        /* Dark mode palette setup */
-        .stApp {
-            background-color: #0F172A !important;
-        }
+.stApp {
+    background-color: #0F172A !important;
+}
 
-        [data-testid="stHeader"], footer, header {
-            display: none !important;
-        }
+[data-testid="stHeader"], footer, header {
+    display: none !important;
+}
 
-        .block-container {
-            padding-top: 2.5rem !important;
-            padding-bottom: 2.5rem !important;
-            max-width: 700px !important;
-        }
+.block-container {
+    padding-top: 2.5rem !important;
+    padding-bottom: 2.5rem !important;
+    max-width: 700px !important;
+}
 
-        .closing-container {
-            font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
-            color: #E9ECEF;
-            padding: 2.8rem 2.2rem;
-            background: #1E293B;
-            border: 1px solid rgba(132, 169, 140, 0.25);
-            border-radius: 20px;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
-            text-align: center;
-            animation: fadeIn 0.8s ease-out forwards;
-        }
+.closing-container {
+    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+    color: #E9ECEF;
+    padding: 2.8rem 2.2rem;
+    background: #1E293B;
+    border: 1px solid rgba(132, 169, 140, 0.25);
+    border-radius: 20px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+    text-align: center;
+    animation: fadeIn 0.8s ease-out forwards;
+}
 
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(12px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
 
-        .brand-logo {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 58px;
-            height: 58px;
-            border-radius: 16px;
-            background: rgba(132, 169, 140, 0.12);
-            border: 1px solid rgba(132, 169, 140, 0.3);
-            margin-bottom: 1.2rem;
-            font-size: 1.8rem;
-            opacity: 0.9;
-        }
+.brand-logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 58px;
+    height: 58px;
+    border-radius: 16px;
+    background: rgba(132, 169, 140, 0.12);
+    border: 1px solid rgba(132, 169, 140, 0.3);
+    margin-bottom: 1.2rem;
+    font-size: 1.8rem;
+    opacity: 0.9;
+}
 
-        .brand-title {
-            font-size: 0.82rem;
-            font-weight: 700;
-            letter-spacing: 0.18em;
-            text-transform: uppercase;
-            color: #84A98C;
-            margin-bottom: 0.8rem;
-        }
+.brand-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #84A98C;
+    margin-bottom: 0.8rem;
+}
 
-        .main-heading {
-            font-size: 2.1rem;
-            font-weight: 700;
-            color: #F8FAFC;
-            margin-bottom: 0.6rem;
-            line-height: 1.25;
-            letter-spacing: -0.02em;
-        }
+.main-heading {
+    font-size: 2.1rem;
+    font-weight: 700;
+    color: #F8FAFC;
+    margin-bottom: 0.6rem;
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+}
 
-        .sub-heading {
-            font-size: 1.02rem;
-            color: #94A3B8;
-            margin-bottom: 1.8rem;
-            font-weight: 400;
-            line-height: 1.5;
-        }
+.sub-heading {
+    font-size: 1.02rem;
+    color: #94A3B8;
+    margin-bottom: 1.8rem;
+    font-weight: 400;
+    line-height: 1.5;
+}
 
-        .badges-container {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 0.6rem;
-            margin-bottom: 2rem;
-        }
+.badges-container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.6rem;
+    margin-bottom: 2rem;
+}
 
-        .product-badge {
-            background: rgba(148, 163, 184, 0.08);
-            border: 1px solid rgba(148, 163, 184, 0.2);
-            color: #CBD5E1;
-            font-size: 0.82rem;
-            font-weight: 500;
-            padding: 0.38rem 0.95rem;
-            border-radius: 20px;
-            letter-spacing: 0.02em;
-        }
+.product-badge {
+    background: rgba(148, 163, 184, 0.08);
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    color: #CBD5E1;
+    font-size: 0.82rem;
+    font-weight: 500;
+    padding: 0.38rem 0.95rem;
+    border-radius: 20px;
+    letter-spacing: 0.02em;
+}
 
-        .divider {
-            height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(132, 169, 140, 0.3), transparent);
-            margin: 2rem 0;
-        }
+.divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(132, 169, 140, 0.3), transparent);
+    margin: 2rem 0;
+}
 
-        .core-section {
-            text-align: left;
-            background: rgba(15, 23, 42, 0.55);
-            border: 1px solid rgba(255, 255, 255, 0.06);
-            border-radius: 14px;
-            padding: 1.8rem;
-            margin-bottom: 1.5rem;
-        }
+.core-section {
+    text-align: left;
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    padding: 1.8rem;
+    margin-bottom: 1.5rem;
+}
 
-        .headline {
-            font-size: 1.22rem;
-            font-weight: 600;
-            color: #D4AF37;
-            margin-bottom: 1.1rem;
-            letter-spacing: -0.01em;
-        }
+.headline {
+    font-size: 1.22rem;
+    font-weight: 600;
+    color: #D4AF37;
+    margin-bottom: 1.1rem;
+    letter-spacing: -0.01em;
+}
 
-        .body-text {
-            font-size: 0.95rem;
-            line-height: 1.75;
-            color: #94A3B8;
-            margin-bottom: 1.1rem;
-        }
+.body-text {
+    font-size: 0.95rem;
+    line-height: 1.75;
+    color: #94A3B8;
+    margin-bottom: 1.1rem;
+}
 
-        .body-text:last-child {
-            margin-bottom: 0;
-        }
+.body-text:last-child {
+    margin-bottom: 0;
+}
 
-        .footer-section {
-            margin-top: 2rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid rgba(148, 163, 184, 0.12);
-            font-size: 0.88rem;
-            color: #64748B;
-            line-height: 1.6;
-        }
+.footer-section {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid rgba(148, 163, 184, 0.12);
+    font-size: 0.88rem;
+    color: #64748B;
+    line-height: 1.6;
+}
 
-        .contact-link {
-            color: #84A98C;
-            text-decoration: none;
-            font-weight: 600;
-            transition: color 0.2s ease;
-        }
+.contact-link {
+    color: #84A98C;
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.2s ease;
+}
 
-        .contact-link:hover {
-            color: #D4AF37;
-            text-decoration: underline;
-        }
-    </style>
+.contact-link:hover {
+    color: #D4AF37;
+    text-decoration: underline;
+}
+</style>
 
-    <div class="closing-container">
-        <div class="brand-logo">🌱</div>
-        <div class="brand-title">AGRIFUSION</div>
-        <h1 class="main-heading">A New Chapter for AgriFusion</h1>
-        <p class="sub-heading">Reflecting on our journey with DizMatrix, SenseOrbit, CropLens, and Quallis.</p>
-        
-        <div class="badges-container">
-            <span class="product-badge">DizMatrix</span>
-            <span class="product-badge">SenseOrbit</span>
-            <span class="product-badge">CropLens</span>
-            <span class="product-badge">Quallis</span>
-        </div>
+<div class="closing-container">
+<div class="brand-logo">🌱</div>
+<div class="brand-title">AGRIFUSION</div>
+<h1 class="main-heading">A New Chapter for AgriFusion</h1>
+<p class="sub-heading">Reflecting on our journey with DizMatrix, SenseOrbit, CropLens, and Quallis.</p>
 
-        <div class="divider"></div>
+<div class="badges-container">
+<span class="product-badge">DizMatrix</span>
+<span class="product-badge">SenseOrbit</span>
+<span class="product-badge">CropLens</span>
+<span class="product-badge">Quallis</span>
+</div>
 
-        <div class="core-section">
-            <div class="headline">Stepping back to evaluate the future.</div>
-            <p class="body-text">
-                As the agricultural landscape evolves, we have made the strategic decision to pause operational activities across the AgriFusion ecosystem, including DizMatrix, SenseOrbit, CropLens, and Quallis.
-            </p>
-            <p class="body-text">
-                While current market conditions and strategic alignment require us to conclude this chapter, our journey has been defined by the incredible partners, advisors, and users who built alongside us. We extend our deepest gratitude to everyone who contributed energy and expertise to this vision.
-            </p>
-            <p class="body-text">
-                AgriFusion remains committed to thoughtful innovation, and we look forward to exploring new opportunities when the timing and resources align.
-            </p>
-        </div>
+<div class="divider"></div>
 
-        <div class="footer-section">
-            For historical data queries or institutional outreach, please 
-            <a href="mailto:support@agrifusion.app" class="contact-link">Contact Support →</a>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+<div class="core-section">
+<div class="headline">Stepping back to evaluate the future.</div>
+<p class="body-text">
+As the agricultural landscape evolves, we have made the strategic decision to pause operational activities across the AgriFusion ecosystem, including DizMatrix, SenseOrbit, CropLens, and Quallis.
+</p>
+<p class="body-text">
+While current market conditions and strategic alignment require us to conclude this chapter, our journey has been defined by the incredible partners, advisors, and users who built alongside us. We extend our deepest gratitude to everyone who contributed energy and expertise to this vision.
+</p>
+<p class="body-text">
+AgriFusion remains committed to thoughtful innovation, and we look forward to exploring new opportunities when the timing and resources align.
+</p>
+</div>
+
+<div class="footer-section">
+For historical data queries or institutional outreach, please 
+<a href="mailto:support@agrifusion.app" class="contact-link">Contact Support →</a>
+</div>
+</div>""", unsafe_allow_html=True)
     st.stop()
 
 # =================================================================
