@@ -222,7 +222,7 @@ AgriFusion remains committed to thoughtful innovation, and we look forward to ex
 
 <div class="footer-section">
 For historical data queries or institutional outreach, please 
-<a href="mailto:support@agrifusion.app" class="contact-link">Contact Support →</a>
+<a href="mailto:aarnav.anandkumar@gmail.com" class="contact-link">Contact Support →</a>
 </div>
 </div>""", unsafe_allow_html=True)
     st.stop()
