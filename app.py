@@ -34,7 +34,7 @@ st.set_page_config(
 # Set to True to display the AgriFusion closing page exclusively.
 # Set to False to run the full CropLens application.
 # =================================================================
-SHOW_CLOSING_PAGE = True
+SHOW_CLOSING_PAGE = False
 
 if SHOW_CLOSING_PAGE:
     st.markdown("""<style>
