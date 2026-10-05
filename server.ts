@@ -72,7 +72,7 @@ const reportsStore: OutbreakReport[] = [
 
 // Initialize Gemini Client
 const geminiApiKey = process.env.GEMINI_API_KEY;
-const mistralApiKey = process.env.MISTRAL_API_KEY;
+const groqApiKey = process.env.GROQ_API_KEY;
 const ai = geminiApiKey
   ? new GoogleGenAI({
       apiKey: geminiApiKey,
@@ -480,22 +480,22 @@ RULES:
           ai_provider: 'gemini',
         });
       } catch (geminiError) {
-        console.warn('Gemini diagnosis failed, attempting Mistral AI fallback:', geminiError);
+        console.warn('Gemini diagnosis failed, attempting Groq fallback:', geminiError);
       }
     }
 
-    // 2. Attempt Mistral AI Multimodal (Pixtral) Fallback if Gemini failed or was unconfigured
-    if (mistralApiKey) {
+    // 2. Attempt Groq Vision (llama-3.2-11b-vision-preview) Fallback if Gemini failed or was unconfigured
+    if (groqApiKey) {
       try {
-        console.log('🔄 Attempting Mistral AI (Pixtral) diagnosis fallback...');
-        const mistralRes = await fetch('https://api.mistral.ai/v1/chat/completions', {
+        console.log('🔄 Attempting Groq Vision (llama-3.2-11b-vision-preview) diagnosis fallback...');
+        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${mistralApiKey}`,
+            'Authorization': `Bearer ${groqApiKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'pixtral-12b-2409',
+            model: 'llama-3.2-11b-vision-preview',
             messages: [
               {
                 role: 'user',
@@ -506,7 +506,9 @@ RULES:
                   },
                   {
                     type: 'image_url',
-                    image_url: `data:image/jpeg;base64,${cleanB64}`,
+                    image_url: {
+                      url: `data:image/jpeg;base64,${cleanB64}`,
+                    },
                   },
                 ],
               },
@@ -515,9 +517,9 @@ RULES:
           }),
         });
 
-        if (mistralRes.ok) {
-          const mistralData = await mistralRes.json();
-          const rawText = mistralData?.choices?.[0]?.message?.content || '';
+        if (groqRes.ok) {
+          const groqData = await groqRes.json();
+          const rawText = groqData?.choices?.[0]?.message?.content || '';
           if (rawText) {
             const parsed = parseAiResponse(rawText);
 
@@ -530,7 +532,7 @@ RULES:
                 treatment_en: null,
                 treatment_hi: null,
                 info: null,
-                ai_provider: 'mistral',
+                ai_provider: 'groq',
               });
             }
 
@@ -555,15 +557,15 @@ RULES:
                 'नीम के तेल का घोल या अनुशंसित फफूंदनाशक का छिड़काव करें।',
               ],
               info,
-              ai_provider: 'mistral',
+              ai_provider: 'groq',
             });
           }
         } else {
-          const errText = await mistralRes.text();
-          console.warn('Mistral AI fallback error:', mistralRes.status, errText);
+          const errText = await groqRes.text();
+          console.warn('Groq API fallback error:', groqRes.status, errText);
         }
-      } catch (mistralError) {
-        console.warn('Mistral AI fallback failed:', mistralError);
+      } catch (groqError) {
+        console.warn('Groq AI fallback failed:', groqError);
       }
     }
 

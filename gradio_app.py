@@ -256,7 +256,7 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str)
         return "🚫 Scans exhausted for this DIF code. Please purchase more scans.", "", "", ""
 
     gemini_key = os.environ.get("GEMINI_API_KEY")
-    mistral_key = os.environ.get("MISTRAL_API_KEY")
+    groq_key = os.environ.get("GROQ_API_KEY")
     disease = None
     confidence = 96.5
 
@@ -285,27 +285,27 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str)
         except Exception as e:
             print("Gemini API fallback:", e)
 
-    # Mistral AI Multimodal Fallback
-    if not disease and mistral_key:
+    # Groq Vision Multimodal Fallback
+    if not disease and groq_key:
         try:
             buf = io.BytesIO()
             image.convert("RGB").save(buf, format="JPEG", quality=85)
             b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-            headers = {"Authorization": f"Bearer {mistral_key}", "Content-Type": "application/json"}
+            headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
             payload = {
-                "model": "pixtral-12b-2409",
+                "model": "llama-3.2-11b-vision-preview",
                 "messages": [
                     {
                         "role": "user",
                         "content": [
                             {"type": "text", "text": f"You are a plant pathologist. Crop: {crop_name or 'Crop'}. DISEASE: <disease name>"},
-                            {"type": "image_url", "image_url": f"data:image/jpeg;base64,{b64}"}
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
                         ]
                     }
                 ],
                 "temperature": 0.2
             }
-            res = requests.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload, timeout=25)
+            res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=25)
             if res.ok:
                 text = res.json()["choices"][0]["message"]["content"]
                 for line in text.splitlines():
@@ -313,7 +313,7 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str)
                         disease = line.split(":", 1)[1].strip()
                         break
         except Exception as e:
-            print("Mistral API fallback:", e)
+            print("Groq API fallback:", e)
 
     if not disease:
         disease = "Early Blight"
