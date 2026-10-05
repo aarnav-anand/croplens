@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  }
+}
+
+.cl-signin-wrap {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.08) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border: 1.5px solid rgba(34, 197, 94, 0.3);
+  border-radius: 14px;
+  padding: 1.2rem 1.4rem;
+  margin: 0.8rem 0;
+  text-align: center;
+}
+
+.cl-card {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.07) 0%, rgba(16, 185, 129, 0.05) 100%);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: 14px;
+  padding: 1rem 1.3rem;
+  margin-bottom: 0.8rem;
+}
+
+.cl-card-warn {
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: 12px;
+  padding: 0.9rem 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.cl-card-danger {
+  background: rgba(239, 68, 68, 0.09);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 12px;
+  padding: 0.9rem 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.cl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: #4ade80;
+  border-radius: 9999px;
+  padding: 0.25rem 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.cl-treatment-box {
+  background: rgba(240, 253, 244, 0.08);
+  border-left: 4px solid #22c55e;
+  border-radius: 0 10px 10px 0;
+  padding: 0.85rem 1.1rem;
+  margin: 0.5rem 0;
+  color: #bbf7d0;
+}
+
+.cl-treatment-section {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.07) 0%, rgba(16, 185, 129, 0.04) 100%);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: 14px;
+  padding: 1.2rem 1.4rem;
+  margin: 1.2rem 0 0.8rem;
+}
+
+.cl-report-section {
+  background: rgba(251, 191, 36, 0.06);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 14px;
+  padding: 1.2rem 1.4rem;
+  margin: 0.8rem 0;
+}
+
+.cl-disease-name {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0.3rem 0 0.5rem;
+}

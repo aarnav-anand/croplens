@@ -1,0 +1,7 @@
+{
+  "name": "CropLens — AI Crop Doctor",
+  "description": "AI-powered crop leaf disease diagnosis, treatment recommendations in English and Hindi, and farm outbreak reporting.",
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
