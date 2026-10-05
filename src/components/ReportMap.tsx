@@ -1,25 +1,20 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 
 interface ReportMapProps {
   onLocationSelect: (lat: number, lng: number) => void;
   selectedLocation: { lat: number; lng: number } | null;
-  t: {
-    locate_me: string;
-    locate_me_help: string;
-    map_caption: string;
-  };
+  mapCaption: string;
 }
 
 export const ReportMap: React.FC<ReportMapProps> = ({
   onLocationSelect,
   selectedLocation,
-  t,
+  mapCaption,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
-  const [locating, setLocating] = useState(false);
 
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
@@ -70,48 +65,10 @@ export const ReportMap: React.FC<ReportMapProps> = ({
     };
   }, []);
 
-  const handleLocateMe = () => {
-    if (!navigator.geolocation) {
-      alert('Geolocation is not supported by your browser');
-      return;
-    }
-
-    setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLocating(false);
-        const { latitude, longitude } = pos.coords;
-        if (mapInstanceRef.current) {
-          mapInstanceRef.current.setView([latitude, longitude], 14);
-          if (markerRef.current) {
-            markerRef.current.setLatLng([latitude, longitude]);
-          } else {
-            markerRef.current = L.marker([latitude, longitude]).addTo(mapInstanceRef.current);
-          }
-          onLocationSelect(latitude, longitude);
-        }
-      },
-      (err) => {
-        setLocating(false);
-        console.warn('Geolocation error:', err);
-      },
-      { timeout: 10000, enableHighAccuracy: true }
-    );
-  };
-
   return (
     <div className="w-full space-y-2">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-slate-400">{t.map_caption}</span>
-        <button
-          type="button"
-          onClick={handleLocateMe}
-          disabled={locating}
-          className="text-xs px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
-          title={t.locate_me_help}
-        >
-          {locating ? '⌛ Locating...' : t.locate_me}
-        </button>
+        <span className="text-xs text-slate-400">{mapCaption}</span>
       </div>
 
       <div

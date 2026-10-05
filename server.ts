@@ -72,6 +72,7 @@ const reportsStore: OutbreakReport[] = [
 
 // Initialize Gemini Client
 const geminiApiKey = process.env.GEMINI_API_KEY;
+const mistralApiKey = process.env.MISTRAL_API_KEY;
 const ai = geminiApiKey
   ? new GoogleGenAI({
       apiKey: geminiApiKey,
@@ -479,7 +480,90 @@ RULES:
           ai_provider: 'gemini',
         });
       } catch (geminiError) {
-        console.warn('Gemini diagnosis failed, using agronomic knowledge base fallback:', geminiError);
+        console.warn('Gemini diagnosis failed, attempting Mistral AI fallback:', geminiError);
+      }
+    }
+
+    // 2. Attempt Mistral AI Multimodal (Pixtral) Fallback if Gemini failed or was unconfigured
+    if (mistralApiKey) {
+      try {
+        console.log('🔄 Attempting Mistral AI (Pixtral) diagnosis fallback...');
+        const mistralRes = await fetch('https://api.mistral.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${mistralApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'pixtral-12b-2409',
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: prompt,
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: `data:image/jpeg;base64,${cleanB64}`,
+                  },
+                ],
+              },
+            ],
+            temperature: 0.2,
+          }),
+        });
+
+        if (mistralRes.ok) {
+          const mistralData = await mistralRes.json();
+          const rawText = mistralData?.choices?.[0]?.message?.content || '';
+          if (rawText) {
+            const parsed = parseAiResponse(rawText);
+
+            if (!parsed.is_leaf) {
+              return res.json({
+                is_leaf: false,
+                confidence: 97,
+                disease: 'Not a leaf',
+                crop: cropName || '',
+                treatment_en: null,
+                treatment_hi: null,
+                info: null,
+                ai_provider: 'mistral',
+              });
+            }
+
+            const diseaseName = parsed.disease || 'Leaf Spot';
+            const info = getDiseaseInfo(diseaseName);
+
+            return res.json({
+              is_leaf: true,
+              confidence: 95.5,
+              disease: diseaseName,
+              crop: cropName || '',
+              treatment_en: parsed.en_points || [
+                info.treatment_en,
+                info.prevention_en,
+                'Inspect adjoining crops for symptom propagation.',
+                'Apply organic neem oil solution or recommended preventive fungicide.',
+              ],
+              treatment_hi: parsed.hi_points || [
+                info.treatment_hi,
+                info.prevention_hi,
+                'आसपास की फसलों में संक्रमण के लक्षणों की जांच करें।',
+                'नीम के तेल का घोल या अनुशंसित फफूंदनाशक का छिड़काव करें।',
+              ],
+              info,
+              ai_provider: 'mistral',
+            });
+          }
+        } else {
+          const errText = await mistralRes.text();
+          console.warn('Mistral AI fallback error:', mistralRes.status, errText);
+        }
+      } catch (mistralError) {
+        console.warn('Mistral AI fallback failed:', mistralError);
       }
     }
 

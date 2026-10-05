@@ -360,27 +360,6 @@ export function App() {
               >
                 {isSigningIn ? 'Verifying...' : t.signin_button}
               </button>
-
-              {/* Demo DIF hints */}
-              <div className="pt-2 text-left">
-                <span className="text-[11px] text-slate-400 block mb-1.5 font-medium">Quick Demo Access:</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    { code: 'AB12', label: 'AB12 (10 Scans)' },
-                    { code: 'CD34', label: 'CD34 (5 Scans)' },
-                    { code: 'EF56', label: 'EF56 (25 Scans)' },
-                  ].map((demo) => (
-                    <button
-                      key={demo.code}
-                      type="button"
-                      onClick={() => handleSignIn(demo.code)}
-                      className="text-[11px] bg-slate-800/90 hover:bg-slate-700 border border-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-lg transition-colors"
-                    >
-                      {demo.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
             </div>
 
             <div className="pt-2 border-t border-slate-800/60 flex items-center justify-center">
@@ -746,11 +725,7 @@ export function App() {
                     <ReportMap
                       onLocationSelect={(lat, lng) => setReportCoords({ lat, lng })}
                       selectedLocation={reportCoords}
-                      t={{
-                        locate_me: t.locate_me,
-                        locate_me_help: t.locate_me_help,
-                        map_caption: t.map_caption,
-                      }}
+                      mapCaption={t.map_caption}
                     />
 
                     {/* Farmer Form Fields */}
