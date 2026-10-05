@@ -1,7 +1,8 @@
 """
 CropLens — AI Crop Doctor (Gradio Application)
-Refactored from Streamlit to Gradio with all features preserved:
-- DIF code authentication & scan credits tracking
+Full feature set preserved:
+- ZeroGPU compatibility (@spaces.GPU) & CPU compatibility
+- DIF code authentication & scan credits tracking (AB12, CD34, EF56)
 - English and Hindi full localization
 - Leaf photo upload & webcam capture
 - Crop identification input
@@ -20,6 +21,13 @@ import requests
 import numpy as np
 from PIL import Image
 import gradio as gr
+
+# Hugging Face ZeroGPU support
+try:
+    import spaces
+    HAVE_SPACES = True
+except ImportError:
+    HAVE_SPACES = False
 
 # Try optional dependencies gracefully
 try:
@@ -159,6 +167,15 @@ DISEASE_INFO = {
         "treatment_en": "Apply protectant fungicide at first sign.",
         "treatment_hi": "पहले लक्षण पर फफूंदनाशक लगाएं।",
     },
+    "black_rot": {
+        "severity_en": "High", "severity_hi": "उच्च",
+        "symptoms_en": "Circular brown-purple leaf spots; fruit develops dark rot.",
+        "symptoms_hi": "गोल भूरे-बैंगनी धब्बे; फलों पर काला सड़ाव।",
+        "prevention_en": "Prune dead wood, remove mummified fruit.",
+        "prevention_hi": "मृत शाखाओं की छंटाई करें, सूखे फल हटाएं।",
+        "treatment_en": "Remove infected foliage and apply appropriate fungicide.",
+        "treatment_hi": "संक्रमित पत्तियां हटाएं और फफूंदनाशक का छिड़काव करें।",
+    },
 }
 
 GENERIC_FALLBACK = {
@@ -229,7 +246,7 @@ def is_water(lat: float, lng: float) -> bool:
         pass
     return False
 
-def diagnose_leaf(image: Image.Image, crop_name: str, dif_code: str, lang: str):
+def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str):
     if image is None:
         return "⚠️ Please upload or capture a leaf photo first.", "", "", ""
 
@@ -238,7 +255,6 @@ def diagnose_leaf(image: Image.Image, crop_name: str, dif_code: str, lang: str):
     if credits <= 0:
         return "🚫 Scans exhausted for this DIF code. Please purchase more scans.", "", "", ""
 
-    # Call Gemini API if available
     gemini_key = os.environ.get("GEMINI_API_KEY")
     disease = "Early Blight"
     confidence = 96.5
@@ -281,6 +297,12 @@ def diagnose_leaf(image: Image.Image, crop_name: str, dif_code: str, lang: str):
 
     advice_box = f"**Severity:** {info.get('severity' + suffix, 'Moderate')}\n\n{symptoms}\n\n{treatment}"
     return result_header, advice_box, f"Remaining scans: {new_credits}", disease
+
+# Decorate with @spaces.GPU if ZeroGPU environment is present
+if HAVE_SPACES:
+    diagnose_leaf = spaces.GPU(_run_diagnosis)
+else:
+    diagnose_leaf = _run_diagnosis
 
 def submit_outbreak_report(farmer_name: str, dif_code: str, crop: str, disease: str, lat: float, lng: float, notes: str):
     if not farmer_name.strip():
@@ -333,7 +355,7 @@ with gr.Blocks(title="CropLens — AI Crop Doctor", css=custom_css, theme=gr.the
     with gr.Row():
         lang_choice = gr.Radio(choices=["English", "हिंदी"], value="English", label="🌐 Language / भाषा")
 
-    # SIGN IN ROW
+    # SIGN IN ROW (DIF CODE & CREDITS)
     with gr.Accordion("🔑 Farmer DIF Code Authentication", open=True):
         with gr.Row():
             dif_input = gr.Textbox(value="AB12", label="DIF Code", placeholder="e.g. AB12", max_lines=1)
