@@ -91,13 +91,13 @@ const supabaseKey = process.env.SUPABASE_ANON_KEY;
 app.post('/api/farmer/lookup', async (req, res) => {
   try {
     const rawCode = (req.body?.dif_code || '').trim().toUpperCase();
-    if (!/^[A-Za-z]{2}\d{2}$/.test(rawCode)) {
+    if (!/^[A-Za-z0-9]{4}$/.test(rawCode)) {
       return res.status(400).json({ error: 'invalid_format' });
     }
 
     if (supabaseUrl && supabaseKey) {
       try {
-        const resp = await fetch(`${supabaseUrl}/rest/v1/farmers?dif_code=eq.${rawCode}&select=croplens`, {
+        const resp = await fetch(`${supabaseUrl}/rest/v1/farmers?dif_code=ilike.${rawCode}&select=id,farmer_name,dif_code,croplens`, {
           headers: {
             apikey: supabaseKey,
             Authorization: `Bearer ${supabaseKey}`,
@@ -106,7 +106,12 @@ app.post('/api/farmer/lookup', async (req, res) => {
         if (resp.ok) {
           const data = await resp.json();
           if (data && data.length > 0) {
-            return res.json({ dif_code: rawCode, credits: data[0].croplens });
+            return res.json({
+              dif_code: data[0].dif_code,
+              credits: data[0].croplens ?? 0,
+              farmer_name: data[0].farmer_name,
+              farmer_id: data[0].id,
+            });
           }
         }
       } catch (err) {
@@ -119,7 +124,7 @@ app.post('/api/farmer/lookup', async (req, res) => {
       farmerStore.set(rawCode, 10);
     }
     const credits = farmerStore.get(rawCode) ?? 10;
-    return res.json({ dif_code: rawCode, credits });
+    return res.json({ dif_code: rawCode, credits, farmer_name: `Farmer ${rawCode}` });
   } catch (error) {
     return res.status(500).json({ error: 'server_error', details: String(error) });
   }
@@ -132,15 +137,16 @@ app.post('/api/farmer/decrement', async (req, res) => {
 
     if (supabaseUrl && supabaseKey) {
       try {
-        const getResp = await fetch(`${supabaseUrl}/rest/v1/farmers?dif_code=eq.${rawCode}&select=croplens`, {
+        const getResp = await fetch(`${supabaseUrl}/rest/v1/farmers?dif_code=ilike.${rawCode}&select=id,croplens`, {
           headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
         });
         if (getResp.ok) {
           const data = await getResp.json();
           if (data && data.length > 0) {
-            const current = data[0].croplens || 0;
+            const farmerId = data[0].id;
+            const current = data[0].croplens ?? 0;
             const updated = Math.max(0, current - 1);
-            await fetch(`${supabaseUrl}/rest/v1/farmers?dif_code=eq.${rawCode}`, {
+            await fetch(`${supabaseUrl}/rest/v1/farmers?id=eq.${farmerId}`, {
               method: 'PATCH',
               headers: {
                 apikey: supabaseKey,
@@ -167,7 +173,37 @@ app.post('/api/farmer/decrement', async (req, res) => {
 });
 
 // Outbreak reports
-app.get('/api/reports', (_req, res) => {
+app.get('/api/reports', async (_req, res) => {
+  if (supabaseUrl && supabaseKey) {
+    try {
+      const resp = await fetch(`${supabaseUrl}/rest/v1/outbreak_reports?select=*&order=reported_at.desc&limit=50`, {
+        headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped = data.map((r: any) => ({
+            id: r.id,
+            disease: r.disease || r.disease_class || 'Disease',
+            crop: r.crop || 'Crop',
+            confidence: r.confidence || 95,
+            farmer_name: r.farmer_name || 'Farmer',
+            farmer_dif: r.farmer_dif || '',
+            center_lat: r.center_lat,
+            center_lng: r.center_lng,
+            notes: r.notes || '',
+            language: r.language || 'en',
+            ai_provider: r.ai_provider || 'gemini',
+            reported_at: r.reported_at || new Date().toISOString(),
+          }));
+          return res.json({ reports: mapped });
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load reports from Supabase, returning memory reports:', err);
+    }
+  }
+
   return res.json({ reports: reportsStore });
 });
 
@@ -178,8 +214,48 @@ app.post('/api/reports', async (req, res) => {
       return res.status(400).json({ error: 'Missing required report fields' });
     }
 
+    let createdId = `rep-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`;
+
+    if (supabaseUrl && supabaseKey) {
+      try {
+        const insertResp = await fetch(`${supabaseUrl}/rest/v1/outbreak_reports`, {
+          method: 'POST',
+          headers: {
+            apikey: supabaseKey,
+            Authorization: `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=representation',
+          },
+          body: JSON.stringify({
+            disease_class: disease || 'Pathology',
+            disease: disease || 'Suspected Disease',
+            crop: crop || 'Crop',
+            confidence: Number(confidence) || 95,
+            farmer_name: String(farmer_name).trim(),
+            farmer_dif: String(farmer_dif || 'GUEST').toUpperCase(),
+            center_lat: Number(center_lat),
+            center_lng: Number(center_lng),
+            notes: notes ? String(notes).trim() : null,
+            language: language || 'en',
+            tool_used: 'croplens',
+            status: 'reviewing',
+            ai_provider: 'gemini',
+          }),
+        });
+
+        if (insertResp.ok) {
+          const inserted = await insertResp.json();
+          if (inserted && inserted.length > 0 && inserted[0].id) {
+            createdId = inserted[0].id;
+          }
+        }
+      } catch (err) {
+        console.warn('Supabase insert failed, stored in memory:', err);
+      }
+    }
+
     const newReport: OutbreakReport = {
-      id: `rep-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
+      id: createdId,
       disease: disease || 'Unspecified Disease',
       crop: crop || 'Unspecified Crop',
       confidence: confidence || 95,
@@ -192,22 +268,6 @@ app.post('/api/reports', async (req, res) => {
       ai_provider: 'gemini',
       reported_at: new Date().toISOString(),
     };
-
-    if (supabaseUrl && supabaseKey) {
-      try {
-        await fetch(`${supabaseUrl}/rest/v1/outbreak_reports`, {
-          method: 'POST',
-          headers: {
-            apikey: supabaseKey,
-            Authorization: `Bearer ${supabaseKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(newReport),
-        });
-      } catch (err) {
-        console.warn('Supabase insert failed, stored in memory:', err);
-      }
-    }
 
     reportsStore.unshift(newReport);
     return res.json({ success: true, report: newReport });
