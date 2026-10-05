@@ -76,7 +76,7 @@ export function App() {
     const code = (codeToTry || difInput).trim().toUpperCase();
     setDifError(null);
 
-    if (!/^[A-Za-z]{2}\d{2}$/.test(code)) {
+    if (!/^[A-Za-z0-9]{4}$/.test(code)) {
       setDifError(t.dif_invalid_format);
       return;
     }

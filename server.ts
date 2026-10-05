@@ -112,6 +112,12 @@ app.post('/api/farmer/lookup', async (req, res) => {
               farmer_name: data[0].farmer_name,
               farmer_id: data[0].id,
             });
+          } else {
+            // Explicitly not found in Supabase database
+            return res.status(404).json({
+              error: 'not_found',
+              message: 'DIF code not found in AgriFusion database. Please register or verify your code.',
+            });
           }
         }
       } catch (err) {
