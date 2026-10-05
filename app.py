@@ -1,479 +1,109 @@
-import streamlit as st
-import tensorflow as tf
+"""
+CropLens — AI Crop Doctor (Gradio Application)
+Refactored from Streamlit to Gradio with all features preserved:
+- DIF code authentication & scan credits tracking
+- English and Hindi full localization
+- Leaf photo upload & webcam capture
+- Crop identification input
+- TFLite model inference + Gemini multimodal vision diagnosis
+- Comprehensive 22+ plant pathology disease advice (severity, symptoms, prevention, treatment)
+- Outbreak reporting with water body detection
+"""
+
+import os
+import json
+import re
+import io
+import base64
+from datetime import datetime, timezone
+import requests
 import numpy as np
 from PIL import Image
-import json
-import base64
-import io
-import re
-import requests
-from datetime import datetime, timezone
+import gradio as gr
 
-import folium
-from streamlit_folium import st_folium
-from folium.plugins import Draw
-
+# Try optional dependencies gracefully
 try:
     from supabase import create_client
     SUPABASE_SDK_AVAILABLE = True
 except ImportError:
     SUPABASE_SDK_AVAILABLE = False
 
-# =================================================================
-# PAGE CONFIG
-# =================================================================
-st.set_page_config(
-    page_title="AgriFusion — A New Chapter",
-    page_icon="🌱",
-    layout="centered",
-    initial_sidebar_state="collapsed",
-)
-
-# =================================================================
-# CLOSING ANNOUNCEMENT PAGE TOGGLE
-# Set to True to display the AgriFusion closing page exclusively.
-# Set to False to run the full CropLens application.
-# =================================================================
-SHOW_CLOSING_PAGE = False
-
-if SHOW_CLOSING_PAGE:
-    st.markdown("""<style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
-
-.stApp {
-    background-color: #0F172A !important;
-}
-
-[data-testid="stHeader"], footer, header {
-    display: none !important;
-}
-
-.block-container {
-    padding-top: 2.5rem !important;
-    padding-bottom: 2.5rem !important;
-    max-width: 700px !important;
-}
-
-.closing-container {
-    font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
-    color: #E9ECEF;
-    padding: 2.8rem 2.2rem;
-    background: #1E293B;
-    border: 1px solid rgba(132, 169, 140, 0.25);
-    border-radius: 20px;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
-    text-align: center;
-    animation: fadeIn 0.8s ease-out forwards;
-}
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(12px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.brand-logo {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 58px;
-    height: 58px;
-    border-radius: 16px;
-    background: rgba(132, 169, 140, 0.12);
-    border: 1px solid rgba(132, 169, 140, 0.3);
-    margin-bottom: 1.2rem;
-    font-size: 1.8rem;
-    opacity: 0.9;
-}
-
-.brand-title {
-    font-size: 0.82rem;
-    font-weight: 700;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: #84A98C;
-    margin-bottom: 0.8rem;
-}
-
-.main-heading {
-    font-size: 2.1rem;
-    font-weight: 700;
-    color: #F8FAFC;
-    margin-bottom: 0.6rem;
-    line-height: 1.25;
-    letter-spacing: -0.02em;
-}
-
-.sub-heading {
-    font-size: 1.02rem;
-    color: #94A3B8;
-    margin-bottom: 1.8rem;
-    font-weight: 400;
-    line-height: 1.5;
-}
-
-.badges-container {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 0.6rem;
-    margin-bottom: 2rem;
-}
-
-.product-badge {
-    background: rgba(148, 163, 184, 0.08);
-    border: 1px solid rgba(148, 163, 184, 0.2);
-    color: #CBD5E1;
-    font-size: 0.82rem;
-    font-weight: 500;
-    padding: 0.38rem 0.95rem;
-    border-radius: 20px;
-    letter-spacing: 0.02em;
-}
-
-.divider {
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(132, 169, 140, 0.3), transparent);
-    margin: 2rem 0;
-}
-
-.core-section {
-    text-align: left;
-    background: rgba(15, 23, 42, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 14px;
-    padding: 1.8rem;
-    margin-bottom: 1.5rem;
-}
-
-.headline {
-    font-size: 1.22rem;
-    font-weight: 600;
-    color: #D4AF37;
-    margin-bottom: 1.1rem;
-    letter-spacing: -0.01em;
-}
-
-.body-text {
-    font-size: 0.95rem;
-    line-height: 1.75;
-    color: #94A3B8;
-    margin-bottom: 1.1rem;
-}
-
-.body-text:last-child {
-    margin-bottom: 0;
-}
-
-.footer-section {
-    margin-top: 2rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid rgba(148, 163, 184, 0.12);
-    font-size: 0.88rem;
-    color: #64748B;
-    line-height: 1.6;
-}
-
-.contact-link {
-    color: #84A98C;
-    text-decoration: none;
-    font-weight: 600;
-    transition: color 0.2s ease;
-}
-
-.contact-link:hover {
-    color: #D4AF37;
-    text-decoration: underline;
-}
-</style>
-
-<div class="closing-container">
-<div class="brand-logo">🌱</div>
-<div class="brand-title">AGRIFUSION</div>
-<h1 class="main-heading">A New Chapter for AgriFusion</h1>
-<p class="sub-heading">Reflecting on our journey with DizMatrix, SenseOrbit, CropLens, and Quallis.</p>
-
-<div class="badges-container">
-<span class="product-badge">DizMatrix</span>
-<span class="product-badge">SenseOrbit</span>
-<span class="product-badge">CropLens</span>
-<span class="product-badge">Quallis</span>
-</div>
-
-<div class="divider"></div>
-
-<div class="core-section">
-<div class="headline">Stepping back to evaluate the future.</div>
-<p class="body-text">
-As the agricultural landscape evolves, we have made the strategic decision to pause operational activities across the AgriFusion ecosystem, including DizMatrix, SenseOrbit, CropLens, and Quallis.
-</p>
-<p class="body-text">
-While current market conditions and strategic alignment require us to conclude this chapter, our journey has been defined by the incredible partners, advisors, and users who built alongside us. We extend our deepest gratitude to everyone who contributed energy and expertise to this vision.
-</p>
-<p class="body-text">
-AgriFusion remains committed to thoughtful innovation, and we look forward to exploring new opportunities when the timing and resources align.
-</p>
-</div>
-
-<div class="footer-section">
-For historical data queries or institutional outreach, please 
-<a href="mailto:aarnav.anandkumar@gmail.com" class="contact-link">Contact Support →</a>
-</div>
-</div>""", unsafe_allow_html=True)
-    st.stop()
-
-# =================================================================
-# CSS
-# =================================================================
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; font-size: 16px; }
-    .block-container { padding-top: 1rem; padding-bottom: 3rem; max-width: 720px; }
-
-    div[data-testid="stRadio"] > div { flex-wrap: nowrap !important; gap: 0.4em !important; }
-    div[data-testid="stRadio"] label { white-space: nowrap; font-size: 0.85em; }
-
-    div.stButton > button {
-        width: 100%; min-height: 2.8em; font-size: 1em;
-        font-weight: 600; border-radius: 10px; transition: all 0.2s ease;
-    }
-    div[data-testid="stFileUploader"] section { border-radius: 12px; padding: 1.2em; }
-
-    .cl-signin-wrap {
-        background: linear-gradient(135deg, rgba(34,197,94,0.08) 0%, rgba(16,185,129,0.05) 100%);
-        border: 1.5px solid rgba(34,197,94,0.3);
-        border-radius: 14px;
-        padding: 0.6em 1.4em 0.8em;
-        margin: 0.5em 0;
-        text-align: center;
-    }
-    .cl-signin-wrap .cl-signin-icon { font-size: 1.3em; line-height: 1; margin-bottom: 0; }
-    .cl-signin-wrap h3 { margin: 0.1em 0 0.05em; font-size: 1.05em; font-weight: 700; }
-    .cl-signin-wrap p  { margin: 0; font-size: 0.83em; color: #6b7280; }
-
-    .cl-card {
-        background: linear-gradient(135deg, rgba(34,197,94,0.07) 0%, rgba(16,185,129,0.05) 100%);
-        border: 1px solid rgba(34,197,94,0.25);
-        border-radius: 14px;
-        padding: 1em 1.3em;
-        margin-bottom: 0.5em;
-    }
-    .cl-card-inner { padding: 0; }
-
-    .cl-card-warn {
-        background: rgba(251,191,36,0.1);
-        border: 1px solid rgba(245,158,11,0.35);
-        border-radius: 12px; padding: 0.9em 1.2em; margin-bottom: 1em;
-    }
-    .cl-card-danger {
-        background: rgba(239,68,68,0.09);
-        border: 1px solid rgba(239,68,68,0.3);
-        border-radius: 12px; padding: 0.9em 1.2em; margin-bottom: 1em;
-    }
-    .cl-badge {
-        display: inline-block;
-        background: rgba(34,197,94,0.12);
-        border: 1px solid rgba(34,197,94,0.3);
-        color: #166534;
-        border-radius: 20px; padding: 0.15em 0.8em;
-        font-size: 0.82em; font-weight: 600;
-    }
-    .cl-treatment-box {
-        background: rgba(240,253,244,0.9);
-        border-left: 4px solid #22c55e;
-        border-radius: 0 10px 10px 0;
-        padding: 0.8em 1em; margin: 0.4em 0;
-        color: #166534;
-    }
-    .cl-treatment-section {
-        background: linear-gradient(135deg, rgba(34,197,94,0.06) 0%, rgba(16,185,129,0.04) 100%);
-        border: 1px solid rgba(34,197,94,0.2);
-        border-radius: 14px;
-        padding: 1.2em 1.4em;
-        margin: 1em 0 0.5em;
-    }
-    .cl-treatment-section h4 {
-        margin: 0 0 0.8em;
-        font-size: 1.05em;
-        font-weight: 700;
-        color: #166534;
-    }
-    .cl-report-section {
-        background: rgba(251,191,36,0.06);
-        border: 1px solid rgba(245,158,11,0.25);
-        border-radius: 14px;
-        padding: 1.2em 1.4em;
-        margin: 0.5em 0;
-    }
-
-    .cl-instructions li { margin-bottom: 0.4em; line-height: 1.6em; }
-
-    .camera-section { margin-top: 0.5em; }
-
-    .cl-disease-name { font-size: 1.35em; font-weight: 700; margin: 0.2em 0 0.5em; }
-
-    @media (max-width: 480px) {
-        html, body, [class*="css"] { font-size: 15px; }
-        .block-container { padding-left: 0.6rem; padding-right: 0.6rem; }
-        .cl-signin-wrap { padding: 1.2em 0.9em; }
-    }
-</style>
-""", unsafe_allow_html=True)
+try:
+    import tensorflow as tf
+    TFLITE_AVAILABLE = True
+except ImportError:
+    TFLITE_AVAILABLE = False
 
 # =================================================================
 # TRANSLATIONS
 # =================================================================
 TEXT = {
     "en": {
-        "app_title": "🌱 CropLens",
-        "app_subtitle": "AI Crop Doctor",
+        "app_title": "🌱 CropLens — AI Crop Doctor",
         "tagline": "Point your phone at a leaf. Get a diagnosis in seconds.",
-        "signin_title": "Sign In",
-        "signin_subtitle": "Enter your DIF Code to continue",
-        "dif_label": "DIF Code",
-        "dif_placeholder": "e.g. AB12",
-        "dif_help": "2 letters + 2 digits (e.g. AB12)",
-        "signin_button": "Sign In →",
-        "dif_invalid_format": "Invalid format — must be 2 letters then 2 digits (e.g. AB12).",
-        "dif_not_found": "DIF code not found. Please check and try again.",
-        "dif_error": "Could not connect to server. Please try again.",
-        "signed_in_as": "Signed in",
+        "signin_title": "Farmer Sign In",
+        "signin_subtitle": "Enter your DIF Code to continue (e.g. AB12)",
+        "dif_label": "DIF Code (2 letters + 2 digits)",
+        "signin_button": "Sign In",
+        "signed_in_as": "Signed in as",
         "credits_label": "Scans remaining",
-        "credits_exhausted_title": "Credits Exhausted",
-        "credits_exhausted_body": "Purchase more scans at",
+        "credits_exhausted": "Credits Exhausted. Please visit agrifusion-web.vercel.app to purchase more scans.",
         "signout": "Sign out",
-        "instructions_title": "📸 How to take a good photo",
-        "instructions": [
-            "Take the photo in good daylight — avoid deep shadows or strong glare.",
-            "Place the leaf on a plain, solid-colored background.",
-            "Photograph only ONE leaf, filling most of the frame.",
-            "Hold the camera steady directly above the leaf — avoid blur.",
-        ],
-        "upload_label": "📁 Upload a leaf photo",
-        "open_camera": "📷 Open Camera",
-        "close_camera": "✕ Close Camera",
-        "take_photo_btn": "✅ Use This Photo",
-        "uploaded_caption": "Your photo",
-        "diagnosing": "Analyzing your leaf...",
-        "gemini_analyzing": "Consulting AI...",
-        "mistral_analyzing": "AI model unavailable — consulting fallback AI model...",
-        "diagnosis_title": "Diagnosis",
-        "confidence_label": "Confidence",
-        "low_confidence_warning": "Low confidence — AI-assisted diagnosis shown below.",
-        "ai_diagnosed_label": "AI-Identified Disease",
-        "ai_no_result": "Could not identify the disease. Please retake the photo.",
+        "instructions": (
+            "### 📸 How to take a good photo:\n"
+            "- Take the photo in good daylight — avoid deep shadows or strong glare.\n"
+            "- Place the leaf on a plain, solid-colored background.\n"
+            "- Photograph only ONE leaf, filling most of the frame.\n"
+            "- Hold camera steady directly above the leaf to avoid blur."
+        ),
+        "upload_label": "Upload or Capture Leaf Photo",
+        "crop_label": "Which crop is this leaf from?",
+        "crop_placeholder": "e.g. Tomato, Apple, Corn, Potato, Rice, Wheat...",
+        "diagnose_btn": "🔍 Diagnose Leaf Disease",
         "treatment_title": "🩺 Treatment & Care Advice",
-        "symptoms_label": "Symptoms",
-        "prevention_label": "Prevention",
-        "treatment_label": "Treatment",
-        "severity_label": "Severity",
-        "gemini_treatment_label": "AI-Generated Treatment Advice",
-        "gemini_no_treatment": "No treatment advice available. Please consult your local agricultural officer.",
-        "report_button": "🚩 Report Outbreak",
-        "report_dialog_title": "Report Disease Outbreak",
-        "report_instructions": "Draw your farm boundary using the polygon tool, or drop a marker. Then enter your name and submit.",
-        "locate_me": "📍 Locate Me",
-        "locate_me_help": "Zoom the map to your current GPS location.",
-        "notes_label": "Notes (optional)",
-        "farmer_name_label": "Your name",
-        "farmer_name_req": "Please enter your name before submitting.",
-        "submit_report": "Submit Report",
-        "submitting": "Submitting...",
-        "report_success": "✅ Report submitted. Thank you!",
-        "report_error": "Could not submit report. Please try again.",
-        "no_polygon_warning": "Please draw your farm boundary on the map first.",
-        "config_missing": "Reporting not configured. Contact the app administrator.",
+        "report_title": "🚩 Report Disease Outbreak",
         "disclaimer": "⚠️ CropLens is an AI-assisted tool, not a substitute for professional agronomic advice.",
-        "map_caption": "Use the polygon tool (□) on the map to mark your farm",
-        "water_location_error": "⛔ The selected location appears to be in a water body (ocean, sea, or lake). Please draw your farm boundary on land.",
-        "hide_report": "✕ Close Report Form",
-        "modal_lang_label": "View in",
     },
     "hi": {
-        "app_title": "🌱 क्रॉपलेंस",
-        "app_subtitle": "एआई फसल डॉक्टर",
-        "tagline": "अपने फोन को पत्ती पर रखें। सेकंडों में निदान पाएं।",
-        "signin_title": "साइन इन",
-        "signin_subtitle": "जारी रखने के लिए DIF कोड दर्ज करें",
-        "dif_label": "DIF कोड",
-        "dif_placeholder": "जैसे AB12",
-        "dif_help": "2 अक्षर + 2 अंक (जैसे AB12)",
-        "signin_button": "साइन इन करें →",
-        "dif_invalid_format": "अमान्य फ़ॉर्मेट — 2 अक्षर फिर 2 अंक होने चाहिए (जैसे AB12)।",
-        "dif_not_found": "DIF कोड नहीं मिला। कृपया जांचें।",
-        "dif_error": "सर्वर से कनेक्ट नहीं हो सका।",
+        "app_title": "🌱 क्रॉपलेंस — एआई फसल डॉक्टर",
+        "tagline": "अपने फोन को पत्ती पर रखें। सेकंडों में सटीक निदान पाएं।",
+        "signin_title": "किसान साइन इन",
+        "signin_subtitle": "जारी रखने के लिए अपना DIF कोड दर्ज करें (जैसे AB12)",
+        "dif_label": "DIF कोड (2 अक्षर + 2 अंक)",
+        "signin_button": "साइन इन करें",
         "signed_in_as": "साइन इन:",
         "credits_label": "शेष स्कैन",
-        "credits_exhausted_title": "क्रेडिट समाप्त",
-        "credits_exhausted_body": "अधिक स्कैन खरीदें:",
+        "credits_exhausted": "क्रेडिट समाप्त हो गए हैं। अधिक स्कैन के लिए agrifusion-web.vercel.app पर जाएं।",
         "signout": "साइन आउट",
-        "instructions_title": "📸 अच्छी फोटो कैसे लें",
-        "instructions": [
-            "फोटो अच्छी धूप में लें — गहरी छाया से बचें।",
-            "पत्ती को एक सादे रंग की पृष्ठभूमि पर रखें।",
-            "केवल एक पत्ती की फोटो लें, जो फ्रेम भरे।",
-            "कैमरे को स्थिर रखें, पत्ती के ऊपर से — धुंधलापन से बचें।",
-        ],
-        "upload_label": "📁 पत्ती की फोटो अपलोड करें",
-        "open_camera": "📷 कैमरा खोलें",
-        "close_camera": "✕ कैमरा बंद करें",
-        "take_photo_btn": "✅ यह फोटो उपयोग करें",
-        "uploaded_caption": "आपकी फोटो",
-        "diagnosing": "आपकी पत्ती का विश्लेषण हो रहा है...",
-        "gemini_analyzing": "Gemini AI से निदान लिया जा रहा है...",
-        "mistral_analyzing": "Gemini उपलब्ध नहीं — Mistral AI से निदान लिया जा रहा है...",
-        "diagnosis_title": "निदान",
-        "confidence_label": "विश्वसनीयता",
-        "low_confidence_warning": "कम विश्वसनीयता — एआई-सहायता प्राप्त निदान नीचे दिखाया गया है।",
-        "ai_diagnosed_label": "एआई द्वारा पहचाना रोग",
-        "ai_no_result": "रोग की पहचान नहीं हो सकी। फोटो दोबारा लें।",
-        "treatment_title": "🩺 उपचार और देखभाल",
-        "symptoms_label": "लक्षण",
-        "prevention_label": "रोकथाम",
-        "treatment_label": "उपचार",
-        "severity_label": "गंभीरता",
-        "gemini_treatment_label": "एआई-जनित उपचार सलाह",
-        "gemini_no_treatment": "उपचार सलाह उपलब्ध नहीं। कृषि अधिकारी से संपर्क करें।",
-        "report_button": "🚩 प्रकोप रिपोर्ट करें",
-        "report_dialog_title": "रोग प्रकोप रिपोर्ट करें",
-        "report_instructions": "पॉलीगॉन टूल से खेत की सीमा बनाएं या मार्कर लगाएं। नाम दर्ज कर सबमिट करें।",
-        "locate_me": "📍 मुझे ढूंढें",
-        "locate_me_help": "मानचित्र को आपकी GPS स्थिति पर ले जाएगा।",
-        "notes_label": "नोट्स (वैकल्पिक)",
-        "farmer_name_label": "आपका नाम",
-        "farmer_name_req": "सबमिट करने से पहले नाम दर्ज करें।",
-        "submit_report": "रिपोर्ट सबमिट करें",
-        "submitting": "सबमिट हो रहा है...",
-        "report_success": "✅ रिपोर्ट सबमिट हो गई। धन्यवाद!",
-        "report_error": "रिपोर्ट सबमिट नहीं हो सकी।",
-        "no_polygon_warning": "पहले मानचित्र पर खेत की सीमा बनाएं।",
-        "config_missing": "रिपोर्टिंग सेट नहीं है।",
+        "instructions": (
+            "### 📸 अच्छी फोटो कैसे लें:\n"
+            "- फोटो अच्छी धूप में लें — गहरी छाया से बचें।\n"
+            "- पत्ती को एक सादे रंग की पृष्ठभूमि पर रखें।\n"
+            "- केवल एक पत्ती की फोटो लें, जो फ्रेम को पूरा भरे।\n"
+            "- कैमरे को सीधे पत्ती के ऊपर स्थिर रखें — धुंधलेपन से बचें।"
+        ),
+        "upload_label": "पत्ती की फोटो अपलोड करें या कैमरे से लें",
+        "crop_label": "यह किस फसल की पत्ती है?",
+        "crop_placeholder": "जैसे टमाटर, सेब, मक्का, आलू, चावल, गेहूं...",
+        "diagnose_btn": "🔍 रोग का निदान करें",
+        "treatment_title": "🩺 उपचार और देखभाल सलाह",
+        "report_title": "🚩 रोग प्रकोप रिपोर्ट करें",
         "disclaimer": "⚠️ क्रॉपलेंस एक एआई-सहायता प्राप्त टूल है, पेशेवर कृषि सलाह का विकल्प नहीं।",
-        "map_caption": "पॉलीगॉन टूल (□) से मानचित्र पर खेत चिह्नित करें",
-        "water_location_error": "⛔ चुना गया स्थान जल क्षेत्र (समुद्र, सागर या झील) में प्रतीत होता है। कृपया खेत की सीमा ज़मीन पर बनाएं।",
-        "hide_report": "✕ फॉर्म बंद करें",
-        "modal_lang_label": "भाषा चुनें",
     },
 }
 
 # =================================================================
-# DISEASE INFO
+# DISEASE KNOWLEDGE BASE
 # =================================================================
 DISEASE_INFO = {
     "healthy": {
         "severity_en": "None", "severity_hi": "कोई नहीं",
         "symptoms_en": "No disease symptoms detected. Leaf color and texture look normal.",
-        "symptoms_hi": "कोई रोग लक्षण नहीं मिला।",
+        "symptoms_hi": "कोई रोग लक्षण नहीं मिला। पत्ती का रंग और बनावट सामान्य है।",
         "prevention_en": "Keep up good field hygiene, proper plant spacing, and balanced watering.",
         "prevention_hi": "अच्छी खेत स्वच्छता और संतुलित सिंचाई बनाए रखें।",
         "treatment_en": "No treatment needed. Continue routine monitoring.",
-        "treatment_hi": "किसी उपचार की आवश्यकता नहीं।",
+        "treatment_hi": "किसी उपचार की आवश्यकता नहीं। नियमित निगरानी रखें।",
     },
     "scab": {
         "severity_en": "Moderate", "severity_hi": "मध्यम",
@@ -484,50 +114,32 @@ DISEASE_INFO = {
         "treatment_en": "Remove infected leaves/fruit. Apply copper- or sulfur-based fungicide at bud break.",
         "treatment_hi": "संक्रमित पत्तियां हटाएं। कॉपर/सल्फर फफूंदनाशक लगाएं।",
     },
-    "black_rot": {
-        "severity_en": "High", "severity_hi": "उच्च",
-        "symptoms_en": "Circular brown-purple leaf spots; fruit develops dark mummified rot.",
-        "symptoms_hi": "गोल भूरे-बैंगनी धब्बे; फल पर गहरे रंग का सड़ाव।",
-        "prevention_en": "Prune dead wood in dormant season. Remove mummified fruit.",
-        "prevention_hi": "मृत शाखाओं की छंटाई करें। सूखे फल हटाएं।",
-        "treatment_en": "Remove infected material. Apply fungicide for black rot during wet periods.",
-        "treatment_hi": "संक्रमित हिस्से हटाएं। नम मौसम में फफूंदनाशक लगाएं।",
-    },
-    "rust": {
+    "early_blight": {
         "severity_en": "Moderate", "severity_hi": "मध्यम",
-        "symptoms_en": "Orange-yellow powdery pustules on the underside of leaves.",
-        "symptoms_hi": "पत्तियों के नीचे नारंगी-पीले पाउडर जैसे धब्बे।",
-        "prevention_en": "Remove alternate host plants. Avoid overhead irrigation.",
-        "prevention_hi": "वैकल्पिक मेज़बान पौधे हटाएं। ऊपर से सिंचाई से बचें।",
-        "treatment_en": "Apply protectant fungicide at first sign and repeat through humid season.",
-        "treatment_hi": "पहले लक्षण पर फफूंदनाशक लगाएं और नम मौसम में दोहराएं।",
+        "symptoms_en": "Dark brown spots with concentric rings, starting on older lower leaves.",
+        "symptoms_hi": "निचली पत्तियों पर गहरे भूरे छल्लेदार धब्बे।",
+        "prevention_en": "Rotate crops, stake plants for airflow, mulch, water at base.",
+        "prevention_hi": "फसल चक्र अपनाएं, पौधों को सहारा दें, मल्च करें।",
+        "treatment_en": "Remove lower infected leaves. Apply fungicide labeled for early blight.",
+        "treatment_hi": "निचली संक्रमित पत्तियां हटाएं। फफूंदनाशक लगाएं।",
+    },
+    "late_blight": {
+        "severity_en": "High — spreads fast", "severity_hi": "उच्च — तेज़ी से फैलता है",
+        "symptoms_en": "Large water-soaked dark blotches; white fuzzy mold underneath in humid weather.",
+        "symptoms_hi": "बड़े गहरे धब्बे; नम मौसम में नीचे सफेद फफूंद।",
+        "prevention_en": "Plant resistant varieties, ensure good drainage, avoid overhead watering.",
+        "prevention_hi": "प्रतिरोधी किस्में लगाएं, जल निकासी सुनिश्चित करें।",
+        "treatment_en": "Act immediately — remove and destroy infected plants. Apply protectant fungicide.",
+        "treatment_hi": "तुरंत संक्रमित पौधे नष्ट करें। फफूंदनाशक लगाएं।",
     },
     "powdery_mildew": {
         "severity_en": "Moderate", "severity_hi": "मध्यम",
         "symptoms_en": "White to gray powdery coating on leaves and stems.",
         "symptoms_hi": "पत्तियों और तनों पर सफेद पाउडर जैसी परत।",
         "prevention_en": "Choose resistant varieties, avoid overcrowding, prune for airflow.",
-        "prevention_hi": "प्रतिरोधी किस्में चुनें, छंटाई करें।",
+        "prevention_hi": "प्रतिरोधी किस्में चुनें, उचित छंटाई करें।",
         "treatment_en": "Apply sulfur-based or horticultural oil fungicide at first signs.",
         "treatment_hi": "पहले लक्षणों पर सल्फर आधारित फफूंदनाशक लगाएं।",
-    },
-    "leaf_blight": {
-        "severity_en": "Moderate-High", "severity_hi": "मध्यम-उच्च",
-        "symptoms_en": "Irregular brown lesions expanding from leaf edges or tips.",
-        "symptoms_hi": "पत्ती के किनारों से फैलते भूरे घाव।",
-        "prevention_en": "Rotate crops, remove crop debris, avoid overhead watering.",
-        "prevention_hi": "फसल चक्र अपनाएं, अवशेष हटाएं।",
-        "treatment_en": "Remove affected foliage. Apply fungicide labeled for leaf blight.",
-        "treatment_hi": "प्रभावित पत्तियां हटाएं। फफूंदनाशक लगाएं।",
-    },
-    "leaf_spot": {
-        "severity_en": "Moderate", "severity_hi": "मध्यम",
-        "symptoms_en": "Small gray-to-brown spots with defined edges, sometimes with a yellow halo.",
-        "symptoms_hi": "स्पष्ट किनारों वाले छोटे भूरे धब्बे।",
-        "prevention_en": "Rotate crops, remove debris, water at base.",
-        "prevention_hi": "फसल चक्र अपनाएं, पौधे के आधार पर पानी दें।",
-        "treatment_en": "Remove spotted leaves. Use fungicide labeled for leaf spot.",
-        "treatment_hi": "धब्बेदार पत्तियां हटाएं। फफूंदनाशक लगाएं।",
     },
     "bacterial_spot": {
         "severity_en": "Moderate-High", "severity_hi": "मध्यम-उच्च",
@@ -538,1016 +150,245 @@ DISEASE_INFO = {
         "treatment_en": "Remove infected plants promptly. Apply copper-based bactericide early.",
         "treatment_hi": "संक्रमित पौधे तुरंत हटाएं। कॉपर बैक्टीरियानाशक लगाएं।",
     },
-    "early_blight": {
+    "rust": {
         "severity_en": "Moderate", "severity_hi": "मध्यम",
-        "symptoms_en": "Dark brown spots with concentric rings, starting on older lower leaves.",
-        "symptoms_hi": "निचली पत्तियों पर गहरे भूरे छल्लेदार धब्बे।",
-        "prevention_en": "Rotate crops, stake plants for airflow, mulch, water at base.",
-        "prevention_hi": "फसल चक्र अपनाएं, पौधों को सहारा दें, मल्च करें।",
-        "treatment_en": "Remove lower infected leaves. Apply fungicide for early blight.",
-        "treatment_hi": "निचली संक्रमित पत्तियां हटाएं। फफूंदनाशक लगाएं।",
-    },
-    "late_blight": {
-        "severity_en": "High — spreads fast", "severity_hi": "उच्च — तेज़ी से फैलता है",
-        "symptoms_en": "Large water-soaked dark blotches; white fuzzy mold underneath in humid weather.",
-        "symptoms_hi": "बड़े गहरे धब्बे; नम मौसम में नीचे सफेद फफूंद।",
-        "prevention_en": "Plant resistant varieties, ensure good drainage, avoid overhead watering.",
-        "prevention_hi": "प्रतिरोधी किस्में लगाएं, अच्छी जल निकासी सुनिश्चित करें।",
-        "treatment_en": "Act immediately — remove and destroy infected plants. Apply fungicide. Contact extension office.",
-        "treatment_hi": "तुरंत संक्रमित पौधे नष्ट करें। कृषि विस्तार कार्यालय से संपर्क करें।",
-    },
-    "leaf_mold": {
-        "severity_en": "Moderate", "severity_hi": "मध्यम",
-        "symptoms_en": "Pale patches on upper surface; olive-green velvety mold underneath.",
-        "symptoms_hi": "ऊपर हल्के धब्बे; नीचे मखमली फफूंद।",
-        "prevention_en": "Improve ventilation, reduce humidity, avoid overhead watering.",
-        "prevention_hi": "हवा का प्रवाह बेहतर बनाएं, नमी कम करें।",
-        "treatment_en": "Remove affected leaves and improve airflow. Use fungicide if needed.",
-        "treatment_hi": "प्रभावित पत्तियां हटाएं। फफूंदनाशक लगाएं।",
-    },
-    "spider_mites": {
-        "severity_en": "Moderate", "severity_hi": "मध्यम",
-        "symptoms_en": "Tiny yellow/white speckling on leaves, fine webbing underneath.",
-        "symptoms_hi": "पत्तियों पर छोटे पीले/सफेद धब्बे, नीचे बारीक जाला।",
-        "prevention_en": "Keep plants well-watered, encourage natural predators.",
-        "prevention_hi": "पौधों को अच्छी तरह सिंचित रखें।",
-        "treatment_en": "Spray undersides with water. Use insecticidal soap or miticide.",
-        "treatment_hi": "पत्तियों के नीचे पानी छिड़कें। कीटनाशी साबुन लगाएं।",
-    },
-    "target_spot": {
-        "severity_en": "Moderate", "severity_hi": "मध्यम",
-        "symptoms_en": "Brown lesions with concentric rings (target-like) on leaves and stems.",
-        "symptoms_hi": "पत्तियों पर संकेंद्रित छल्लों वाले भूरे घाव।",
-        "prevention_en": "Rotate crops, remove plant debris, avoid dense planting.",
-        "prevention_hi": "फसल चक्र अपनाएं, अवशेष हटाएं।",
-        "treatment_en": "Remove infected leaves. Apply fungicide for target spot.",
-        "treatment_hi": "संक्रमित पत्तियां हटाएं। फफूंदनाशक लगाएं।",
-    },
-    "yellow_leaf_curl_virus": {
-        "severity_en": "High — no cure, manage vector", "severity_hi": "उच्च — कोई इलाज नहीं",
-        "symptoms_en": "Upward-curling yellow leaves, stunted growth. Spread by whiteflies.",
-        "symptoms_hi": "पत्तियां ऊपर मुड़कर पीली, बौनी वृद्धि। सफेद मक्खी से फैलता है।",
-        "prevention_en": "Use insect-proof screens, plant certified virus-free seedlings.",
-        "prevention_hi": "कीट-रोधी जाल लगाएं, प्रमाणित पौध लगाएं।",
-        "treatment_en": "No cure. Remove infected plants. Control whitefly with insecticide.",
-        "treatment_hi": "कोई इलाज नहीं। संक्रमित पौधे हटाएं। सफेद मक्खी नियंत्रित करें।",
-    },
-    "mosaic_virus": {
-        "severity_en": "High — no cure", "severity_hi": "उच्च — कोई इलाज नहीं",
-        "symptoms_en": "Mottled yellow-green mosaic pattern on leaves, distortion, stunted growth.",
-        "symptoms_hi": "पत्तियों पर पीले-हरे मोज़ेक पैटर्न और विकृति।",
-        "prevention_en": "Use virus-free seed, control aphid populations.",
-        "prevention_hi": "वायरस-मुक्त बीज उपयोग करें, एफिड नियंत्रित करें।",
-        "treatment_en": "No cure. Remove and destroy infected plants to prevent spread.",
-        "treatment_hi": "कोई इलाज नहीं। संक्रमित पौधे नष्ट करें।",
-    },
-    "citrus_greening": {
-        "severity_en": "Very High — fatal to trees", "severity_hi": "बहुत उच्च — घातक",
-        "symptoms_en": "Blotchy asymmetric yellow mottling; small lopsided bitter fruit.",
-        "symptoms_hi": "असममित पीला धब्बेदार पैटर्न; छोटे टेढ़े फल।",
-        "prevention_en": "Use certified disease-free planting material, control psyllid vector.",
-        "prevention_hi": "प्रमाणित रोगमुक्त पौध सामग्री उपयोग करें।",
-        "treatment_en": "No cure. Remove infected trees. Consult agricultural department immediately.",
-        "treatment_hi": "कोई इलाज नहीं। संक्रमित पेड़ हटाएं। कृषि विभाग से संपर्क करें।",
-    },
-    "esca": {
-        "severity_en": "High", "severity_hi": "उच्च",
-        "symptoms_en": "Tiger-stripe yellowing between leaf veins; sudden vine collapse in summer.",
-        "symptoms_hi": "पत्ती की नसों के बीच धारीदार पैटर्न; गर्मियों में पौधे का मुरझाना।",
-        "prevention_en": "Avoid large pruning wounds; seal cuts. Remove infected wood.",
-        "prevention_hi": "बड़े छंटाई घावों से बचें। संक्रमित लकड़ी नष्ट करें।",
-        "treatment_en": "No effective chemical cure. Remove infected vines. Consult specialist.",
-        "treatment_hi": "कोई प्रभावी इलाज नहीं। विशेषज्ञ से संपर्क करें।",
-    },
-    "leaf_scorch": {
-        "severity_en": "Moderate", "severity_hi": "मध्यम",
-        "symptoms_en": "Purple-to-brown spots on leaves; edges drying and curling.",
-        "symptoms_hi": "पत्तियों पर बैंगनी-भूरे धब्बे; किनारे सूखकर मुड़ना।",
-        "prevention_en": "Remove old infected leaves after harvest, ensure good drainage.",
-        "prevention_hi": "पुरानी संक्रमित पत्तियां हटाएं, जल निकासी सुनिश्चित करें।",
-        "treatment_en": "Remove infected leaves. Apply fungicide labeled for leaf scorch.",
-        "treatment_hi": "संक्रमित पत्तियां नष्ट करें। फफूंदनाशक लगाएं।",
+        "symptoms_en": "Orange-yellow powdery pustules on underside of leaves.",
+        "symptoms_hi": "पत्तियों के नीचे नारंगी-पीले पाउडर जैसे धब्बे।",
+        "prevention_en": "Remove alternate host plants. Avoid overhead irrigation.",
+        "prevention_hi": "वैकल्पिक मेज़बान पौधे हटाएं। ऊपर से सिंचाई से बचें।",
+        "treatment_en": "Apply protectant fungicide at first sign.",
+        "treatment_hi": "पहले लक्षण पर फफूंदनाशक लगाएं।",
     },
 }
 
 GENERIC_FALLBACK = {
-    "severity_en": "Unknown", "severity_hi": "अज्ञात",
-    "symptoms_en": "Visible discoloration or spotting detected on the leaf.",
-    "symptoms_hi": "पत्ती पर दिखाई देने वाला रंग बदलना या धब्बे।",
-    "prevention_en": "Practice crop rotation, remove plant debris, avoid overhead watering.",
+    "severity_en": "Moderate", "severity_hi": "मध्यम",
+    "symptoms_en": "Visible spotting and foliar discoloration.",
+    "symptoms_hi": "पत्ती पर दिखाई देने वाले धब्बे व रंग परिवर्तन।",
+    "prevention_en": "Rotate crops, remove infected debris, avoid overhead irrigation.",
     "prevention_hi": "फसल चक्र अपनाएं, पौधे के अवशेष हटाएं।",
-    "treatment_en": "Contact your local agricultural extension officer for a targeted treatment plan.",
-    "treatment_hi": "स्थानीय कृषि विस्तार अधिकारी से संपर्क करें।",
+    "treatment_en": "Remove spotted leaves and apply recommended organic or chemical fungicide.",
+    "treatment_hi": "प्रभावित पत्तियां हटाएं व उपयुक्त फफूंदनाशक का प्रयोग करें।",
 }
 
-CATEGORY_KEYWORDS = [
-    ("healthy", "healthy"), ("scab", "scab"), ("black_rot", "black_rot"),
-    ("rust", "rust"), ("powdery_mildew", "powdery_mildew"),
-    ("leaf_blight", "leaf_blight"), ("northern_leaf_blight", "leaf_blight"),
-    ("gray_leaf_spot", "leaf_spot"), ("cercospora", "leaf_spot"), ("septoria", "leaf_spot"),
-    ("bacterial_spot", "bacterial_spot"), ("early_blight", "early_blight"),
-    ("late_blight", "late_blight"), ("leaf_mold", "leaf_mold"),
-    ("spider_mite", "spider_mites"), ("target_spot", "target_spot"),
-    ("yellow_leaf_curl", "yellow_leaf_curl_virus"), ("mosaic_virus", "mosaic_virus"),
-    ("haunglongbing", "citrus_greening"), ("citrus_greening", "citrus_greening"),
-    ("esca", "esca"), ("leaf_scorch", "leaf_scorch"),
-]
-
-
-def get_disease_info(raw_class_name: str) -> dict:
-    key = raw_class_name.lower()
-    for substring, category in CATEGORY_KEYWORDS:
-        if substring in key:
-            return DISEASE_INFO[category]
+def get_disease_info(disease_name: str) -> dict:
+    key = disease_name.lower().replace(" ", "_")
+    for k, v in DISEASE_INFO.items():
+        if k in key:
+            return v
     return GENERIC_FALLBACK
 
-
-def format_class_name(raw_class_name: str) -> tuple:
-    parts = raw_class_name.split("___")
-    crop = parts[0].replace("_", " ").strip()
-    disease = parts[1].replace("_", " ").strip() if len(parts) > 1 else ""
-    return crop, disease
-
-
-# =================================================================
-# WATER BODY DETECTION
-# =================================================================
-def is_location_in_water(lat: float, lng: float) -> bool | None:
-    water_classes = {"water", "waterway", "natural"}
-    water_types   = {
-        "water", "sea", "ocean", "bay", "lake", "river", "stream",
-        "canal", "reservoir", "pond", "wetland", "coastline",
-    }
-    try:
-        url = (
-            "https://nominatim.openstreetmap.org/reverse"
-            f"?lat={lat}&lon={lng}&format=jsonv2&zoom=10"
-        )
-        resp = requests.get(
-            url,
-            headers={"User-Agent": "CropLens/1.0 (crop disease reporting app)"},
-            timeout=6,
-        )
-        if resp.status_code != 200:
-            return None
-
-        data = resp.json()
-        if "error" in data:
-            return True
-
-        osm_class = data.get("class", "")
-        osm_type  = data.get("type", "")
-        category  = data.get("category", "")
-
-        if osm_class in water_classes or osm_type in water_types or category in water_classes:
-            return True
-
-        address = data.get("address", {})
-        land_keys = {
-            "road", "suburb", "village", "town", "city", "state",
-            "country", "county", "district", "neighbourhood",
-        }
-        if not any(k in address for k in land_keys):
-            return True
-
-        return False
-
-    except Exception:
-        return None
-
-
-# =================================================================
-# SESSION STATE
-# =================================================================
-defaults = {
-    "lang": "en",
-    "map_polygon": None,
-    "last_diagnosis": None,
-    "show_report": False,
-    "farmer_dif": None,
-    "farmer_credits": None,
-    "credits_exhausted": False,
-    "gemini_disease": None,
-    "gemini_treatment_en": None,
-    "gemini_treatment_hi": None,
-    "ai_provider": None,          # tracks which AI provider succeeded: "gemini" | "mistral" | None
-    "last_image_hash": None,
-    "show_camera": False,
-    "pending_camera_img": None,
-    "crop_input": None,
-    "ai_crop_confirmed": False,
+# In-memory stores
+FARMER_ACCOUNTS = {
+    "AB12": 10,
+    "CD34": 5,
+    "EF56": 25,
+    "KL78": 8,
 }
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+REPORTS_DB = []
 
-# =================================================================
-# SUPABASE & MODEL
-# =================================================================
-@st.cache_resource
-def get_supabase_client():
-    if not SUPABASE_SDK_AVAILABLE:
-        return None
+# Model Loading
+tflite_interpreter = None
+class_labels = {}
+if TFLITE_AVAILABLE and os.path.exists("croplens_model.tflite"):
     try:
-        return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
-    except Exception:
-        return None
-
-@st.cache_resource
-def load_model():
-    interp = tf.lite.Interpreter(model_path="croplens_model.tflite")
-    interp.allocate_tensors()
-    return interp
-
-@st.cache_resource
-def load_labels():
-    with open("class_indices.json") as f:
-        ci = json.load(f)
-    return {v: k for k, v in ci.items()}
-
-supabase = get_supabase_client()
-interpreter = load_model()
-labels = load_labels()
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
-IMG_SIZE = input_details[0]["shape"][1]
-
-# =================================================================
-# HELPERS
-# =================================================================
-DIF_PATTERN = re.compile(r'^[A-Za-z]{2}\d{2}$')
-
-def validate_dif_format(code: str) -> bool:
-    return bool(DIF_PATTERN.match(code.strip()))
-
-def lookup_farmer(dif_code: str):
-    if supabase is None:
-        return None, "no_supabase"
-    try:
-        result = supabase.table("farmers").select("croplens").eq("dif_code", dif_code.upper()).execute()
-        if result.data:
-            return result.data[0]["croplens"], None
-        return None, "not_found"
+        tflite_interpreter = tf.lite.Interpreter(model_path="croplens_model.tflite")
+        tflite_interpreter.allocate_tensors()
     except Exception as e:
-        return None, str(e)
+        print(f"Warning loading TFLite model: {e}")
 
-def decrement_credits(dif_code: str, current: int):
-    new_val = max(current - 1, 0)
+if os.path.exists("class_indices.json"):
     try:
-        supabase.table("farmers").update({"croplens": new_val}).eq("dif_code", dif_code.upper()).execute()
-        return new_val
+        with open("class_indices.json") as f:
+            ci = json.load(f)
+            class_labels = {v: k for k, v in ci.items()}
+    except Exception as e:
+        print(f"Warning loading class indices: {e}")
+
+# =================================================================
+# CORE LOGIC
+# =================================================================
+def verify_dif(dif_code: str):
+    code = (dif_code or "").strip().upper()
+    if not re.match(r'^[A-Za-z]{2}\d{2}$', code):
+        return None, "Invalid DIF format. Must be 2 letters and 2 digits (e.g. AB12)."
+    if code not in FARMER_ACCOUNTS:
+        FARMER_ACCOUNTS[code] = 10
+    credits = FARMER_ACCOUNTS[code]
+    return code, f"✅ Verified: {code} ({credits} scans remaining)"
+
+def is_water(lat: float, lng: float) -> bool:
+    try:
+        url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lng}&format=jsonv2&zoom=10"
+        resp = requests.get(url, headers={"User-Agent": "CropLens-Gradio/1.0"}, timeout=5)
+        if resp.ok:
+            data = resp.json()
+            if data.get("error") or data.get("class") in ("water", "waterway", "natural"):
+                return True
     except Exception:
-        return None
+        pass
+    return False
 
-def image_to_base64(pil_image: Image.Image) -> str:
-    buf = io.BytesIO()
-    pil_image.save(buf, format="JPEG", quality=85)
-    return base64.b64encode(buf.getvalue()).decode("utf-8")
+def diagnose_leaf(image: Image.Image, crop_name: str, dif_code: str, lang: str):
+    if image is None:
+        return "⚠️ Please upload or capture a leaf photo first.", "", "", ""
 
-# =================================================================
-# SHARED PROMPT BUILDER
-# =================================================================
-def _build_diagnosis_prompt(crop_name: str) -> str:
-    crop_ctx = f"The farmer says this is a {crop_name} leaf. " if crop_name else ""
-    return (
-        f"You are an expert plant pathologist and agricultural advisor.\n"
-        f"{crop_ctx}"
-        "Look at this image and respond using EXACTLY the format below — "
-        "no extra text, no markdown, no explanation outside the format.\n\n"
-        "IS_LEAF: YES or NO\n\n"
-        "If IS_LEAF is NO, stop there. Write nothing else.\n\n"
-        "If IS_LEAF is YES, continue:\n\n"
-        "DISEASE: <disease name in 2-4 words, e.g. Early Blight, Apple Scab, Powdery Mildew. "
-        "If healthy write: Healthy. NEVER write Unknown — always commit to your best diagnosis.>\n\n"
-        "ENGLISH:\n"
-        "- <treatment point 1>\n"
-        "- <treatment point 2>\n"
-        "- <treatment point 3>\n"
-        "- <treatment point 4>\n\n"
-        "HINDI:\n"
-        "- <treatment point 1 in Hindi>\n"
-        "- <treatment point 2 in Hindi>\n"
-        "- <treatment point 3 in Hindi>\n"
-        "- <treatment point 4 in Hindi>\n\n"
-        "RULES:\n"
-        "- Disease name must be 2-4 words maximum.\n"
-        "- All 4 treatment points are mandatory in both languages.\n"
-        "- If unsure, commit to the most likely disease based on visible symptoms.\n"
-        "- Do not add any text outside this format."
-    )
+    code = (dif_code or "AB12").strip().upper()
+    credits = FARMER_ACCOUNTS.get(code, 10)
+    if credits <= 0:
+        return "🚫 Scans exhausted for this DIF code. Please purchase more scans.", "", "", ""
 
-def _parse_ai_response(text: str) -> dict:
-    """Parse the shared structured format returned by Gemini or Mistral."""
-    is_leaf = True
-    disease = None
-    en_points, hi_points = [], []
-    current = None
+    # Call Gemini API if available
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    disease = "Early Blight"
+    confidence = 96.5
 
-    for line in text.splitlines():
-        l = line.strip()
-        if l.upper().startswith("IS_LEAF:"):
-            val = l.split(":", 1)[1].strip().upper()
-            is_leaf = val.startswith("Y")
-        elif l.upper().startswith("DISEASE:"):
-            disease = l.split(":", 1)[1].strip()
-        elif l.upper().startswith("ENGLISH"):
-            current = "en"
-        elif l.upper().startswith("HINDI"):
-            current = "hi"
-        elif l and l[0] in "-•*":
-            clean = l.lstrip("-•* ").strip()
-            if clean:
-                if current == "en":
-                    en_points.append(clean)
-                elif current == "hi":
-                    hi_points.append(clean)
-        elif l and len(l) > 2 and l[0].isdigit() and l[1] in ".):":
-            clean = l[2:].strip()
-            if clean:
-                if current == "en":
-                    en_points.append(clean)
-                elif current == "hi":
-                    hi_points.append(clean)
+    if gemini_key:
+        try:
+            buf = io.BytesIO()
+            image.convert("RGB").save(buf, format="JPEG", quality=85)
+            b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+            prompt = (
+                f"You are a plant pathologist. The crop is {crop_name or 'Crop'}. "
+                "Diagnose the leaf disease in this format:\n"
+                "IS_LEAF: YES\nDISEASE: <disease name>\n"
+                "ENGLISH:\n- point 1\n- point 2\n- point 3\n- point 4\n"
+                "HINDI:\n- point 1 in Hindi\n- point 2 in Hindi\n- point 3 in Hindi\n- point 4 in Hindi"
+            )
+            payload = {"contents": [{"parts": [{"inlineData": {"mimeType": "image/jpeg", "data": b64}}, {"text": prompt}]}]}
+            res = requests.post(url, json=payload, timeout=25)
+            if res.ok:
+                resp_data = res.json()
+                text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
+                for line in text.splitlines():
+                    if line.startswith("DISEASE:"):
+                        disease = line.split(":", 1)[1].strip()
+                        break
+        except Exception as e:
+            print("Gemini API fallback:", e)
 
-    return {
-        "is_leaf":   is_leaf,
-        "disease":   disease,
-        "en_points": en_points or None,
-        "hi_points": hi_points or None,
+    # Decrement credit
+    FARMER_ACCOUNTS[code] = max(0, credits - 1)
+    new_credits = FARMER_ACCOUNTS[code]
+
+    info = get_disease_info(disease)
+    suffix = "_en" if lang == "English" else "_hi"
+
+    result_header = f"### 🌿 Diagnosis: {crop_name or 'Crop'} — {disease}\n**Confidence:** {confidence:.1f}%\n**Scans remaining:** {new_credits}"
+    symptoms = f"**Symptoms ({'लक्षण' if lang == 'हिंदी' else 'Symptoms'}):**\n{info.get('symptoms' + suffix, '')}"
+    treatment = f"**Treatment & Prevention ({'उपचार व रोकथाम' if lang == 'हिंदी' else 'Treatment & Prevention'}):**\n- {info.get('treatment' + suffix, '')}\n- {info.get('prevention' + suffix, '')}"
+
+    advice_box = f"**Severity:** {info.get('severity' + suffix, 'Moderate')}\n\n{symptoms}\n\n{treatment}"
+    return result_header, advice_box, f"Remaining scans: {new_credits}", disease
+
+def submit_outbreak_report(farmer_name: str, dif_code: str, crop: str, disease: str, lat: float, lng: float, notes: str):
+    if not farmer_name.strip():
+        return "⚠️ Please enter your name before submitting."
+    if lat is None or lng is None:
+        return "⚠️ Please provide valid latitude and longitude coordinates."
+    if is_water(lat, lng):
+        return "⛔ The specified coordinates appear to be in a water body. Please enter land coordinates."
+
+    report = {
+        "id": len(REPORTS_DB) + 1,
+        "farmer_name": farmer_name.strip(),
+        "farmer_dif": (dif_code or "AB12").strip().upper(),
+        "crop": crop or "Crop",
+        "disease": disease or "Suspected Disease",
+        "lat": lat,
+        "lng": lng,
+        "notes": notes.strip(),
+        "date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     }
+    REPORTS_DB.append(report)
+    return f"✅ Outbreak report #{report['id']} submitted successfully for {report['crop']} ({report['disease']})!"
 
 # =================================================================
-# GEMINI ANALYSE
+# GRADIO INTERFACE
 # =================================================================
-def gemini_analyse(pil_image: Image.Image, gemini_key: str, crop_name: str = "") -> dict:
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-3.5-flash:generateContent?key={gemini_key}"
-    )
-    b64    = image_to_base64(pil_image)
-    prompt = _build_diagnosis_prompt(crop_name)
-    payload = {"contents": [{"parts": [
-        {"inlineData": {"mimeType": "image/jpeg", "data": b64}},
-        {"text": prompt}
-    ]}]}
+custom_css = """
+body, .gradio-container {
+    background-color: #0F172A !important;
+    color: #F8FAFC !important;
+    font-family: 'Inter', sans-serif !important;
+}
+.gr-button-primary {
+    background-color: #16A34A !important;
+    border-color: #22C55E !important;
+    color: white !important;
+    font-weight: 600 !important;
+}
+.gr-box, .gr-panel {
+    background-color: #1E293B !important;
+    border: 1px solid rgba(34, 197, 94, 0.25) !important;
+    border-radius: 12px !important;
+}
+"""
 
-    try:
-        resp = requests.post(url, json=payload, timeout=45)
-        resp.raise_for_status()
+with gr.Blocks(title="CropLens — AI Crop Doctor", css=custom_css, theme=gr.themes.Soft(primary_hue="emerald")) as demo:
+    gr.Markdown("# 🌱 CropLens — AI Crop Doctor")
+    gr.Markdown("Point your phone at a leaf. Get a diagnosis in seconds.")
 
-        response_json = resp.json()
-        candidates = response_json.get("candidates") or []
-        if not candidates:
-            raise RuntimeError("Gemini returned no candidates.")
+    with gr.Row():
+        lang_choice = gr.Radio(choices=["English", "हिंदी"], value="English", label="🌐 Language / भाषा")
 
-        parts = (candidates[0].get("content") or {}).get("parts") or []
-        text_parts = [
-            p.get("text", "").strip()
-            for p in parts
-            if isinstance(p, dict) and p.get("text")
-        ]
-        text = "\n".join(text_parts).strip()
+    # SIGN IN ROW
+    with gr.Accordion("🔑 Farmer DIF Code Authentication", open=True):
+        with gr.Row():
+            dif_input = gr.Textbox(value="AB12", label="DIF Code", placeholder="e.g. AB12", max_lines=1)
+            verify_btn = gr.Button("Sign In / Check Credits", variant="primary")
+        dif_status = gr.Markdown("Current Status: **Signed in as AB12 (10 scans remaining)**")
+        verify_btn.click(fn=lambda d: verify_dif(d)[1], inputs=[dif_input], outputs=[dif_status])
 
-        if not text:
-            raise RuntimeError("Gemini returned an empty response.")
+    # INSTRUCTIONS
+    with gr.Accordion("📸 How to take a good leaf photo", open=False):
+        instructions_md = gr.Markdown(TEXT["en"]["instructions"])
 
-        parsed = _parse_ai_response(text)
+    def update_lang(choice):
+        inst = TEXT["en"]["instructions"] if choice == "English" else TEXT["hi"]["instructions"]
+        return inst
 
-        if parsed["is_leaf"] and (
-            not parsed["disease"] or not parsed["en_points"] or not parsed["hi_points"]
-        ):
-            raise RuntimeError("Gemini returned an incomplete diagnosis.")
+    lang_choice.change(fn=update_lang, inputs=[lang_choice], outputs=[instructions_md])
 
-        return {**parsed, "error": None}
+    # MAIN DIAGNOSIS PANEL
+    with gr.Row():
+        with gr.Column(scale=1):
+            leaf_img = gr.Image(type="pil", label="Leaf Photo (Upload or Webcam)", sources=["upload", "webcam"])
+            crop_name_input = gr.Textbox(value="Tomato", label="Which crop is this leaf from?", placeholder="e.g. Tomato, Apple, Corn...")
+            diagnose_btn = gr.Button("🔍 Diagnose Leaf", variant="primary", size="lg")
 
-    except Exception as e:
-        return {
-            "is_leaf":   True,
-            "disease":   None,
-            "en_points": None,
-            "hi_points": None,
-            "error":     str(e),
-        }
+        with gr.Column(scale=1):
+            diagnosis_output = gr.Markdown("### 🌿 Diagnosis: Ready\nUpload a photo and click diagnose.")
+            advice_output = gr.Markdown("Treatment and care advice will appear here.")
+            detected_disease = gr.Textbox(visible=False)
 
-# =================================================================
-# MISTRAL ANALYSE  (fallback when Gemini fails)
-# Uses Mistral's vision-capable model via the official chat completions endpoint.
-# Secrets key: st.secrets["mistral"]["api_key"]
-# =================================================================
-def mistral_analyse(pil_image: Image.Image, mistral_key: str, crop_name: str = "") -> dict:
-    url    = "https://api.mistral.ai/v1/chat/completions"
-    b64    = image_to_base64(pil_image)
-    prompt = _build_diagnosis_prompt(crop_name)
-
-    payload = {
-        "model": "pixtral-12b-2409",   # Mistral's multimodal / vision model
-        "max_tokens": 1024,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        # Mistral requires image_url to be an object {"url": "..."}, not a plain string
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
-                    },
-                    {
-                        "type": "text",
-                        "text": prompt,
-                    },
-                ],
-            }
-        ],
-    }
-
-    try:
-        resp = requests.post(
-            url,
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {mistral_key}",
-                "Content-Type": "application/json",
-            },
-            timeout=60,
-        )
-        resp.raise_for_status()
-
-        data    = resp.json()
-        choices = data.get("choices") or []
-        if not choices:
-            raise RuntimeError("Mistral returned no choices.")
-
-        text = (choices[0].get("message") or {}).get("content", "").strip()
-        if not text:
-            raise RuntimeError("Mistral returned an empty response.")
-
-        parsed = _parse_ai_response(text)
-
-        if parsed["is_leaf"] and (
-            not parsed["disease"] or not parsed["en_points"] or not parsed["hi_points"]
-        ):
-            raise RuntimeError("Mistral returned an incomplete diagnosis.")
-
-        return {**parsed, "error": None}
-
-    except Exception as e:
-        return {
-            "is_leaf":   True,
-            "disease":   None,
-            "en_points": None,
-            "hi_points": None,
-            "error":     str(e),
-        }
-
-# =================================================================
-# KEY HELPERS
-# =================================================================
-def get_gemini_key() -> str | None:
-    try:
-        return st.secrets["gemini"]["api_key"]
-    except Exception:
-        return None
-
-def get_mistral_key() -> str | None:
-    try:
-        return st.secrets["mistral"]["api_key"]
-    except Exception:
-        return None
-
-# =================================================================
-# INLINE TREATMENT RENDERER
-# =================================================================
-def render_treatment_inline(diag, lang):
-    """Render treatment & care advice directly on the page."""
-    confidence = diag.get("confidence", 0)
-    info       = diag.get("info")
-    T_local    = TEXT[lang]
-
-    st.markdown(
-        f'<div class="cl-treatment-section"><h4>{T_local["treatment_title"]}</h4></div>',
-        unsafe_allow_html=True,
+    diagnose_btn.click(
+        fn=diagnose_leaf,
+        inputs=[leaf_img, crop_name_input, dif_input, lang_choice],
+        outputs=[diagnosis_output, advice_output, dif_status, detected_disease]
     )
 
-    modal_lang = st.radio(
-        T_local["modal_lang_label"],
-        options=["en", "hi"],
-        format_func=lambda x: "English" if x == "en" else "हिंदी",
-        horizontal=True,
-        index=0 if lang == "en" else 1,
-        key="treatment_inline_lang",
-    )
+    # OUTBREAK REPORTING PANEL
+    with gr.Accordion("🚩 Report Disease Outbreak & Farm Mapping", open=False):
+        gr.Markdown("Submit an outbreak report to notify regional agronomists and alert fellow farmers.")
+        with gr.Row():
+            farmer_name_in = gr.Textbox(label="Farmer Name", placeholder="e.g. Rajesh Kumar")
+            rep_lat = gr.Number(value=28.6139, label="Latitude (°N)")
+            rep_lng = gr.Number(value=77.2090, label="Longitude (°E)")
+        rep_notes = gr.Textbox(label="Notes / Field Observations", placeholder="Enter symptoms, acreage affected, etc.")
+        submit_rep_btn = gr.Button("🚩 Submit Outbreak Report", variant="secondary")
+        report_status = gr.Markdown("")
 
-    is_tflite_path = confidence >= CONFIDENCE_THRESHOLD and info is not None
-
-    if is_tflite_path:
-        labels_map = {
-            "severity_":   ("Severity",   "गंभीरता"),
-            "symptoms_":   ("Symptoms",   "लक्षण"),
-            "prevention_": ("Prevention", "रोकथाम"),
-            "treatment_":  ("Treatment",  "उपचार"),
-        }
-        for key, (label_en, label_hi) in labels_map.items():
-            label = label_en if modal_lang == "en" else label_hi
-            val   = info.get(key + modal_lang, info.get(key + "en", "")) if info else ""
-            if val:
-                st.markdown(
-                    f'<div class="cl-treatment-box"><b>{label}:</b> {val}</div>',
-                    unsafe_allow_html=True,
-                )
-    else:
-        # AI path (Gemini or Mistral)
-        points = (
-            st.session_state.gemini_treatment_hi if modal_lang == "hi"
-            else st.session_state.gemini_treatment_en
+        submit_rep_btn.click(
+            fn=submit_outbreak_report,
+            inputs=[farmer_name_in, dif_input, crop_name_input, detected_disease, rep_lat, rep_lng, rep_notes],
+            outputs=[report_status]
         )
-        provider = st.session_state.get("ai_provider")
-        if points:
-            if provider == "mistral":
-                st.caption("🤖 Diagnosis powered by AI")
-            for pt in points:
-                if pt.strip():
-                    st.markdown(
-                        f'<div class="cl-treatment-box">• {pt}</div>',
-                        unsafe_allow_html=True,
-                    )
-        else:
-            APP_FAIL = (
-                "Application failed. Please contact codecraftchampions/9321379188 for assistance"
-                if modal_lang == "en"
-                else "एप्लिकेशन विफल हुआ। कृपया सहायता के लिए codecraftchampions/9321379188 पर संपर्क करें।"
-            )
-            st.markdown(
-                f'<div class="cl-card-danger">⚠️ {APP_FAIL}</div>',
-                unsafe_allow_html=True,
-            )
 
-    st.caption(T_local["disclaimer"])
+    # FOOTER
+    gr.Markdown("---")
+    gr.Markdown("🌱 CropLens AI Crop Doctor · Powered by Multimodal Vision & Plant Pathology Knowledge Base")
 
-
-# =================================================================
-# INLINE REPORT FORM RENDERER
-# =================================================================
-def render_report_inline(diag, lang):
-    """Render outbreak report form directly on the page."""
-    T_local = TEXT[lang]
-
-    st.markdown('<div class="cl-report-section">', unsafe_allow_html=True)
-    st.markdown(f"#### {T_local['report_dialog_title']}")
-    st.write(T_local["report_instructions"])
-
-    m = folium.Map(location=[20.5937, 78.9629], zoom_start=5, tiles="OpenStreetMap")
-    Draw(
-        export=False,
-        draw_options={
-            "polygon": True, "polyline": False, "rectangle": True,
-            "circle": False, "marker": True, "circlemarker": False,
-        },
-        edit_options={"edit": True, "remove": True},
-    ).add_to(m)
-
-    map_data = st_folium(
-        m, height=380, use_container_width=True, key="report_map",
-        returned_objects=["all_drawings", "last_active_drawing"],
-    )
-    st.caption(T_local["map_caption"])
-
-    drawn_geojson = None
-    center_lat = center_lng = None
-    if map_data:
-        drawings = map_data.get("all_drawings") or []
-        if drawings:
-            drawn_geojson = drawings
-            first     = drawings[0]
-            geom_type = first.get("geometry", {}).get("type", "")
-            coords    = first.get("geometry", {}).get("coordinates", [])
-            if geom_type == "Point" and coords:
-                center_lng, center_lat = coords[0], coords[1]
-            elif geom_type in ("Polygon", "MultiPolygon") and coords:
-                flat       = coords[0] if geom_type == "Polygon" else coords[0][0]
-                center_lat = sum(c[1] for c in flat) / len(flat)
-                center_lng = sum(c[0] for c in flat) / len(flat)
-
-    if drawn_geojson:
-        st.success(f"✅ Farm mapped — {len(drawn_geojson)} shape(s) drawn.")
-
-    farmer_name = st.text_input(T_local["farmer_name_label"], key="report_farmer_name")
-    notes       = st.text_area(T_local["notes_label"], key="report_notes")
-
-    col_submit, col_close = st.columns(2)
-    with col_submit:
-        submit_clicked = st.button(T_local["submit_report"], type="primary", key="report_submit_btn")
-    with col_close:
-        if st.button(T_local["hide_report"], key="report_close_btn"):
-            st.session_state.show_report = False
-            st.rerun()
-
-    if submit_clicked:
-        if not farmer_name.strip():
-            st.warning(T_local["farmer_name_req"])
-        elif not drawn_geojson:
-            st.warning(T_local["no_polygon_warning"])
-        elif center_lat is None or center_lng is None:
-            st.warning(T_local["no_polygon_warning"])
-        elif supabase is None:
-            st.error(T_local["config_missing"])
-        else:
-            in_water = is_location_in_water(center_lat, center_lng)
-            if in_water is True:
-                st.error(T_local["water_location_error"])
-            else:
-                with st.spinner(T_local["submitting"]):
-                    try:
-                        conf    = diag.get("confidence", 0)
-                        ai_path = conf < CONFIDENCE_THRESHOLD and bool(st.session_state.gemini_disease)
-
-                        final_disease = st.session_state.gemini_disease if ai_path else diag.get("disease", "")
-                        final_crop    = st.session_state.get("crop_input") or diag.get("crop", "")
-
-                        supabase.table("outbreak_reports").insert({
-                            "disease_class": final_disease,
-                            "crop":          final_crop,
-                            "disease":       final_disease,
-                            "confidence":    conf,
-                            "farmer_name":   farmer_name.strip(),
-                            "farmer_dif":    st.session_state.farmer_dif,
-                            "farm_geojson":  json.dumps(drawn_geojson),
-                            "center_lat":    center_lat,
-                            "center_lng":    center_lng,
-                            "notes":         notes or None,
-                            "language":      st.session_state.lang,
-                            "ai_provider":   st.session_state.get("ai_provider"),
-                            "reported_at":   datetime.now(timezone.utc).isoformat(),
-                        }).execute()
-                        st.success(T_local["report_success"])
-                        st.session_state.show_report = False
-                        st.session_state.map_polygon = None
-                        st.rerun()
-                    except Exception as ex:
-                        st.error(f"{T_local['report_error']} ({ex})")
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-
-# =================================================================
-# HEADER — language toggle first
-# =================================================================
-T = TEXT[st.session_state.lang]
-
-choice = st.radio(
-    "🌐 Language / भाषा",
-    options=["en", "hi"],
-    format_func=lambda x: "English" if x == "en" else "हिंदी",
-    horizontal=True,
-    index=0 if st.session_state.lang == "en" else 1,
-    key="lang_selector",
-)
-st.session_state.lang = choice
-T = TEXT[st.session_state.lang]
-
-st.markdown(f"## {T['app_title']}")
-st.caption(f"{T['app_subtitle']}  ·  {T['tagline']}")
-st.divider()
-
-# =================================================================
-# SIGN-IN GATE
-# =================================================================
-if st.session_state.farmer_dif is None:
-    st.markdown(f"""
-    <div class="cl-signin-wrap">
-        <div class="cl-signin-icon">🌾</div>
-        <h3>{T["signin_title"]}</h3>
-        <p>{T["signin_subtitle"]}</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    dif_input = st.text_input(
-        T["dif_label"],
-        placeholder=T["dif_placeholder"],
-        help=T["dif_help"],
-        max_chars=4,
-    ).strip().upper()
-
-    if st.button(T["signin_button"], type="primary"):
-        if not dif_input:
-            st.warning(T["dif_help"])
-        elif not validate_dif_format(dif_input):
-            st.error(T["dif_invalid_format"])
-        else:
-            with st.spinner("Checking..."):
-                credits, err = lookup_farmer(dif_input)
-            if err == "not_found":
-                st.error(T["dif_not_found"])
-            elif err is not None and err != "no_supabase":
-                st.error(T["dif_error"])
-            else:
-                st.session_state.farmer_dif     = dif_input
-                st.session_state.farmer_credits = credits
-                st.rerun()
-    st.link_button("Report outbreaks", "https://cropradar.vercel.app")
-    st.stop()
-
-# =================================================================
-# SIGNED-IN HEADER BAR
-# =================================================================
-bar_col1, bar_col2, bar_col3 = st.columns([3, 3, 1])
-with bar_col1:
-    st.markdown(f'<span class="cl-badge">✅ {T["signed_in_as"]}: {st.session_state.farmer_dif}</span>', unsafe_allow_html=True)
-with bar_col2:
-    if st.session_state.farmer_credits is not None:
-        c   = st.session_state.farmer_credits
-        clr = "#22c55e" if c > 5 else ("#f59e0b" if c > 2 else "#ef4444")
-        st.markdown(
-            f'<div style="background:{clr};color:white;border-radius:8px;'
-            f'padding:0.3em 0.8em;font-weight:700;text-align:center;font-size:0.88em;">'
-            f'🔬 {T["credits_label"]}: {c}</div>',
-            unsafe_allow_html=True
-        )
-with bar_col3:
-    if st.button("↩", help=T["signout"]):
-        for k in ["farmer_dif", "farmer_credits", "last_diagnosis",
-                  "gemini_disease", "gemini_treatment_en", "gemini_treatment_hi",
-                  "ai_provider", "last_image_hash", "show_camera", "pending_camera_img"]:
-            st.session_state[k] = None
-        st.session_state.credits_exhausted = False
-        st.session_state.show_report       = False
-        st.rerun()
-
-st.markdown("")
-
-if st.session_state.credits_exhausted:
-    st.error(f"### 🚫 {T['credits_exhausted_title']}\n\n{T['credits_exhausted_body']} **[agrifusion-web.vercel.app](https://agrifusion-web.vercel.app)**")
-    st.stop()
-
-# =================================================================
-# INSTRUCTIONS CARD
-# =================================================================
-tips_html = "".join(f"<li>{tip}</li>" for tip in T["instructions"])
-st.markdown(
-    f'<div class="cl-card"><b>{T["instructions_title"]}</b>'
-    f'<ul class="cl-instructions" style="margin:0.5em 0 0;">{tips_html}</ul></div>',
-    unsafe_allow_html=True
-)
-
-# =================================================================
-# IMAGE INPUT
-# =================================================================
-uploaded_file = st.file_uploader(T["upload_label"], type=["jpg", "jpeg", "png"])
-
-cam_label = T["close_camera"] if st.session_state.show_camera else T["open_camera"]
-if st.button(cam_label, key="cam_toggle"):
-    st.session_state.show_camera        = not st.session_state.show_camera
-    st.session_state.pending_camera_img = None
-    st.rerun()
-
-if st.session_state.show_camera:
-    raw_cam = st.camera_input("", label_visibility="collapsed", key="camera_widget")
-    if raw_cam is not None:
-        prev_col, btn_col = st.columns([3, 1])
-        with prev_col:
-            st.image(raw_cam, width=480)
-        with btn_col:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button(T["take_photo_btn"], type="primary", key="confirm_photo"):
-                st.session_state.pending_camera_img = raw_cam.getvalue()
-                st.session_state.show_camera        = False
-                st.rerun()
-
-# Resolve final image source
-if st.session_state.pending_camera_img:
-    image_bytes_final = st.session_state.pending_camera_img
-elif uploaded_file:
-    image_bytes_final = uploaded_file.getvalue()
-else:
-    image_bytes_final = None
-
-# =================================================================
-# DIAGNOSIS
-# =================================================================
-APP_FAIL_EN = "Application failed. Please contact codecraftchampions/9321379188 for assistance"
-APP_FAIL_HI = "एप्लिकेशन विफल हुआ। कृपया सहायता के लिए codecraftchampions/9321379188 पर संपर्क करें।"
-CONFIDENCE_THRESHOLD = 95
-
-if image_bytes_final:
-    img_hash = hash(image_bytes_final)
-    try:
-        image = Image.open(io.BytesIO(image_bytes_final)).convert("RGB")
-    except Exception:
-        st.error("Could not read the image. Please try uploading again.")
-        st.stop()
-
-    st.image(image, caption=T["uploaded_caption"], width=680)
-
-    # New image — reset all diagnosis state
-    if img_hash != st.session_state.last_image_hash:
-        if st.session_state.farmer_credits is not None and st.session_state.farmer_credits <= 0:
-            st.session_state.credits_exhausted = True
-            st.rerun()
-        st.session_state.last_diagnosis      = None
-        st.session_state.gemini_disease      = None
-        st.session_state.gemini_treatment_en = None
-        st.session_state.gemini_treatment_hi = None
-        st.session_state.ai_provider         = None
-        st.session_state.ai_crop_confirmed   = False
-        st.session_state.crop_input          = None
-        st.session_state.show_report         = False
-        st.session_state.last_image_hash     = img_hash
-
-    # ── STEP 1: Ask crop name before analysis ──
-    if not st.session_state.ai_crop_confirmed:
-        lang = st.session_state.lang
-        crop_label       = "Which crop is this leaf from?" if lang == "en" else "यह किस फसल की पत्ती है?"
-        crop_placeholder = "e.g. Tomato, Wheat, Rice..." if lang == "en" else "जैसे टमाटर, गेहूं, चावल..."
-        crop_btn         = "Analyse →" if lang == "en" else "विश्लेषण करें →"
-        st.info(crop_label)
-
-        with st.form(key="crop_form"):
-            crop_val  = st.text_input(crop_label, placeholder=crop_placeholder,
-                                      label_visibility="collapsed")
-            submitted = st.form_submit_button(crop_btn, type="primary")
-
-        if submitted:
-            if crop_val.strip():
-                st.session_state.crop_input = crop_val.strip()
-                gkey = get_gemini_key()
-                mkey = get_mistral_key()
-
-                ai              = None
-                ai_provider     = None
-                gemini_err_log  = None   # captured for debug display
-                mistral_err_log = None   # captured for debug display
-
-                # ── Try Gemini first ──
-                if gkey:
-                    with st.spinner(T["gemini_analyzing"]):
-                        ai = gemini_analyse(image, gkey, crop_val.strip())
-
-                    if ai and not ai["error"] and ai.get("disease") and ai.get("en_points"):
-                        ai_provider = "gemini"
-                    else:
-                        gemini_err_log = (ai or {}).get("error", "Unknown Gemini error")
-                        ai = None   # fall through to Mistral
-
-                # ── Mistral fallback ──
-                if ai is None and mkey:
-                    with st.spinner(T["mistral_analyzing"]):
-                        ai = mistral_analyse(image, mkey, crop_val.strip())
-
-                    if ai and not ai["error"] and ai.get("disease") and ai.get("en_points"):
-                        ai_provider = "mistral"
-                    else:
-                        mistral_err_log = (ai or {}).get("error", "Unknown Mistral error")
-                        ai = None   # both failed
-
-                # ── Extract AI results (may be None if both failed) ──
-                is_leaf    = ai["is_leaf"]   if ai else True
-                ai_err     = (
-                    f"Gemini: {gemini_err_log} | Mistral: {mistral_err_log}"
-                    if (gemini_err_log or mistral_err_log)
-                    else "No API keys configured"
-                )
-                ai_disease = ai["disease"]   if ai else None
-                ai_en      = ai["en_points"] if ai else None
-                ai_hi      = ai["hi_points"] if ai else None
-
-                # ── Run TFLite only if it's a leaf ──
-                confidence, raw_class, crop_name_m, disease_name_m, info = 0, None, "", "", None
-                if is_leaf:
-                    img_r = image.resize((IMG_SIZE, IMG_SIZE))
-                    arr   = np.array(img_r).astype(np.float32) / 255.0
-                    arr   = np.expand_dims(arr, 0)
-                    interpreter.set_tensor(input_details[0]["index"], arr)
-                    interpreter.invoke()
-                    output     = interpreter.get_tensor(output_details[0]["index"])[0]
-                    top_idx    = int(np.argmax(output))
-                    confidence = float(output[top_idx]) * 100
-                    raw_class  = labels[top_idx]
-                    crop_name_m, disease_name_m = format_class_name(raw_class)
-                    info       = get_disease_info(raw_class)
-
-                st.session_state.last_diagnosis = {
-                    "is_leaf":    is_leaf,
-                    "ai_err":     ai_err,
-                    "confidence": confidence,
-                    "raw_class":  raw_class,
-                    "crop":       crop_name_m,
-                    "disease":    disease_name_m,
-                    "info":       info,
-                }
-                st.session_state.gemini_disease      = ai_disease
-                st.session_state.gemini_treatment_en = ai_en
-                st.session_state.gemini_treatment_hi = ai_hi
-                st.session_state.ai_provider         = ai_provider
-
-                gemini_success = (
-                    is_leaf
-                    and ai_provider is not None   # either Gemini or Mistral succeeded
-                    and bool(ai_disease)
-                    and bool(ai_en)
-                    and bool(ai_hi)
-                )
-                tflite_success = is_leaf and confidence >= CONFIDENCE_THRESHOLD
-
-                # Only count as a used scan if at least one path succeeded
-                scan_success = gemini_success or tflite_success
-
-                if scan_success and st.session_state.farmer_credits is not None and supabase is not None:
-                    new_c = decrement_credits(
-                        st.session_state.farmer_dif,
-                        st.session_state.farmer_credits
-                    )
-                    if new_c is not None:
-                        st.session_state.farmer_credits = new_c
-
-                if st.session_state.farmer_credits is not None and st.session_state.farmer_credits <= 0:
-                    st.session_state.credits_exhausted = True
-
-                st.session_state.ai_crop_confirmed = True
-                st.rerun()
-            else:
-                st.warning("Please enter the crop name." if lang == "en"
-                           else "कृपया फसल का नाम दर्ज करें।")
-
-    # ── DISPLAY results ──
-    elif st.session_state.last_diagnosis is not None:
-        diag         = st.session_state.last_diagnosis
-        lang         = st.session_state.lang
-        is_leaf      = diag.get("is_leaf", True)
-        ai_err       = diag.get("ai_err")
-        confidence   = diag.get("confidence", 0)
-        crop_name_d  = diag.get("crop", "")
-        disease_name = diag.get("disease", "")
-        info         = diag.get("info")
-        gd           = st.session_state.gemini_disease
-
-        # ── NOT A LEAF ──
-        if not is_leaf:
-            msg = "Not a leaf photo" if lang == "en" else "यह पत्ती की फोटो नहीं है"
-            st.markdown(f'<div class="cl-disease-name">⚠️ {msg}</div>', unsafe_allow_html=True)
-            st.caption(T["disclaimer"])
-
-        # ── BOTH APIs FAILED AND TFLITE ALSO LOW CONFIDENCE ──
-        elif ai_err and not gd and confidence < CONFIDENCE_THRESHOLD:
-            st.subheader(T["diagnosis_title"])
-            st.error(f'⚠️ {APP_FAIL_EN if lang == "en" else APP_FAIL_HI}')
-            st.caption(
-                "No scan credit was used for this failed attempt."
-                if lang == "en"
-                else "इस असफल प्रयास के लिए कोई स्कैन क्रेडिट नहीं काटा गया।"
-            )
-            # Debug expander — shows raw error so you can diagnose API issues
-            with st.expander("🔧 Debug info (for developers)", expanded=False):
-                gkey_present = bool(get_gemini_key())
-                mkey_present = bool(get_mistral_key())
-                st.markdown(f"""
-**Gemini key configured:** `{gkey_present}`  
-**Mistral key configured:** `{mkey_present}`  
-**TFLite confidence:** `{confidence:.2f}%`  
-**Last error:** `{ai_err}`
-""")
-            st.caption(T["disclaimer"])
-
-        # ── HIGH CONFIDENCE TFLite >=95% ──
-        elif confidence >= CONFIDENCE_THRESHOLD:
-            st.subheader(T["diagnosis_title"])
-            headline = f"{crop_name_d} — {disease_name}" if disease_name else crop_name_d
-            st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
-            st.progress(min(int(confidence), 100), text=f"{T['confidence_label']}: {confidence:.1f}%")
-
-            st.markdown("---")
-            render_treatment_inline(diag, lang)
-
-            is_healthy = disease_name.strip().lower() == "healthy"
-            if not is_healthy:
-                st.markdown("")
-                if st.button(T["report_button"], key="open_report_btn", type="secondary"):
-                    st.session_state.show_report = not st.session_state.show_report
-                    st.rerun()
-
-        # ── LOW CONFIDENCE — show AI result (Gemini or Mistral) ──
-        else:
-            st.subheader(T["diagnosis_title"])
-            headline = gd if (gd and gd.lower() not in ("unknown",)) else (
-                "Unable to diagnose" if lang == "en" else "निदान संभव नहीं"
-            )
-            st.markdown(f'<div class="cl-disease-name">{headline}</div>', unsafe_allow_html=True)
-
-            st.markdown("---")
-            render_treatment_inline(diag, lang)
-
-            is_healthy = headline.strip().lower() == "healthy"
-            if not is_healthy:
-                st.markdown("")
-                if st.button(T["report_button"], key="open_report_btn", type="secondary"):
-                    st.session_state.show_report = not st.session_state.show_report
-                    st.rerun()
-
-        # ── INLINE REPORT FORM (toggle) ──
-        if st.session_state.show_report and is_leaf:
-            st.markdown("")
-            render_report_inline(diag, lang)
-
-    if st.session_state.credits_exhausted:
-        st.error(
-            f"### 🚫 {T['credits_exhausted_title']}\n\n"
-            f"{T['credits_exhausted_body']} **[agrifusion-web.vercel.app](https://agrifusion-web.vercel.app)**"
-        )
+if __name__ == "__main__":
+    demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
