@@ -73,7 +73,6 @@ const reportsStore: OutbreakReport[] = [
 // Initialize Gemini Client
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const groqApiKey = process.env.GROQ_API_KEY;
-const mistralApiKey = process.env.MISTRAL_API_KEY;
 const ai = geminiApiKey
   ? new GoogleGenAI({
       apiKey: geminiApiKey,
@@ -423,7 +422,6 @@ RULES:
 
     let geminiErrorMsg: string | null = ai ? null : 'GEMINI_API_KEY is not configured';
     let groqErrorMsg: string | null = groqApiKey ? null : 'GROQ_API_KEY is not configured';
-    let mistralErrorMsg: string | null = mistralApiKey ? null : 'MISTRAL_API_KEY is not configured';
 
     // 1. Attempt Gemini diagnosis (try 2.5-flash first, then flash-latest, 2.0-flash, 1.5-flash)
     if (ai) {
@@ -596,110 +594,20 @@ RULES:
       }
     }
 
-    // 3. Attempt Mistral Multimodal (pixtral-12b-2409) if configured in environment
-    if (mistralApiKey) {
-      try {
-        console.log('🔄 Attempting Mistral AI (pixtral-12b-2409) diagnosis fallback...');
-        const mistralRes = await fetch('https://api.mistral.ai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${mistralApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'pixtral-12b-2409',
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  {
-                    type: 'text',
-                    text: prompt,
-                  },
-                  {
-                    type: 'image_url',
-                    image_url: `data:image/jpeg;base64,${cleanB64}`,
-                  },
-                ],
-              },
-            ],
-            temperature: 0.2,
-          }),
-        });
-
-        if (mistralRes.ok) {
-          const mistralData = await mistralRes.json();
-          const rawText = mistralData?.choices?.[0]?.message?.content || '';
-          if (rawText) {
-            const parsed = parseAiResponse(rawText);
-
-            if (!parsed.is_leaf) {
-              return res.json({
-                is_leaf: false,
-                confidence: 97,
-                disease: 'Not a leaf',
-                crop: cropName || '',
-                treatment_en: null,
-                treatment_hi: null,
-                info: null,
-                ai_provider: 'mistral',
-                ai_code: 'MI',
-                is_superscan: Boolean(isSuperScan),
-              });
-            }
-
-            const diseaseName = parsed.disease || 'Leaf Spot';
-            const info = getDiseaseInfo(diseaseName);
-
-            return res.json({
-              is_leaf: true,
-              confidence: 95.5,
-              disease: diseaseName,
-              crop: cropName || '',
-              treatment_en: parsed.en_points || [
-                info.treatment_en,
-                info.prevention_en,
-                'Inspect adjoining crops for symptom propagation.',
-                'Apply organic neem oil solution or recommended preventive fungicide.',
-              ],
-              treatment_hi: parsed.hi_points || [
-                info.treatment_hi,
-                info.prevention_hi,
-                'आसपास की फसलों में संक्रमण के लक्षणों की जांच करें।',
-                'नीम के तेल का घोल या अनुशंसित फफूंदनाशक का छिड़काव करें।',
-              ],
-              info,
-              ai_provider: 'mistral',
-              ai_code: 'MI',
-              is_superscan: Boolean(isSuperScan),
-            });
-          }
-        } else {
-          const errText = await mistralRes.text();
-          mistralErrorMsg = `Mistral HTTP ${mistralRes.status}: ${errText}`;
-        }
-      } catch (mistralErr: any) {
-        mistralErrorMsg = `Mistral: ${mistralErr?.message || String(mistralErr)}`;
-      }
-    }
-
     // If user explicitly chose SuperScan, DO NOT fall back to TFLite!
     if (isSuperScan) {
       return res.status(503).json({
         error: 'superscan_unavailable',
-        message: `SuperScan cloud models unreachable.
-- Gemini: ${geminiErrorMsg || 'not attempted'}
-- Groq: ${groqErrorMsg || 'not attempted'}
-- Mistral: ${mistralErrorMsg || 'not attempted'}
-Tip: If you recently added keys in Vercel, please trigger a Redeployment on Vercel for them to take effect. Credits were not deducted.`,
+        message: `Advanced DL Model cloud inference is currently unreachable.
+- Engine 1: ${geminiErrorMsg || 'not attempted'}
+- Engine 2: ${groqErrorMsg || 'not attempted'}
+Tip: If you recently added or updated keys in Vercel, please trigger a Redeployment on Vercel for them to take effect. Credits were not deducted.`,
         diagnostics: {
-          gemini: geminiErrorMsg,
-          groq: groqErrorMsg,
-          mistral: mistralErrorMsg,
+          engine_1: geminiErrorMsg,
+          engine_2: groqErrorMsg,
           keys_configured: {
-            gemini: Boolean(geminiApiKey),
-            groq: Boolean(groqApiKey),
-            mistral: Boolean(mistralApiKey),
+            engine_1: Boolean(geminiApiKey),
+            engine_2: Boolean(groqApiKey),
           },
         },
       });

@@ -320,7 +320,7 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str,
             print("Groq API fallback:", e)
 
     if superscan and not disease:
-        return "⚠️ SuperScan cloud models (Gemini / Groq) did not respond. TFLite model was skipped as requested. Credits were not deducted.", "", "", ""
+        return "⚠️ SuperScan cloud inference (Advanced DL Model) did not respond. TFLite model was skipped as requested. Credits were not deducted.", "", "", ""
 
     if not disease:
         disease = "Early Blight"
@@ -334,7 +334,8 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str,
     suffix = "_en" if lang == "English" else "_hi"
 
     superscan_tag = " ⚡ SuperScan" if superscan else ""
-    result_header = f"### 🌿 Diagnosis [{ai_code}]{superscan_tag}: {crop_name or 'Crop'} — {disease}\n**Engine:** `{ai_code}` ({'Gemini' if ai_code == 'GE' else 'Groq' if ai_code == 'GQ' else 'TFLite Model'})\n**Confidence:** {confidence:.1f}%\n**Scans remaining:** {new_credits}"
+    engine_name = "Advanced DL Model [GE]" if ai_code == "GE" else "Advanced DL Model [GQ]" if ai_code == "GQ" else "TFLite Model [TLITE]"
+    result_header = f"### 🌿 Diagnosis [{ai_code}]{superscan_tag}: {crop_name or 'Crop'} — {disease}\n**Engine:** `{ai_code}` ({engine_name})\n**Confidence:** {confidence:.1f}%\n**Scans remaining:** {new_credits}"
     symptoms = f"**Symptoms ({'लक्षण' if lang == 'हिंदी' else 'Symptoms'}):**\n{info.get('symptoms' + suffix, '')}"
     treatment = f"**Treatment & Prevention ({'उपचार व रोकथाम' if lang == 'हिंदी' else 'Treatment & Prevention'}):**\n- {info.get('treatment' + suffix, '')}\n- {info.get('prevention' + suffix, '')}"
 
@@ -421,7 +422,7 @@ with gr.Blocks(title="CropLens — AI Crop Doctor", css=custom_css, theme=gr.the
         with gr.Column(scale=1):
             leaf_img = gr.Image(type="pil", label="Leaf Photo (Upload or Webcam)", sources=["upload", "webcam"])
             crop_name_input = gr.Textbox(value="Tomato", label="Which crop is this leaf from?", placeholder="e.g. Tomato, Apple, Corn...")
-            superscan_toggle = gr.Checkbox(value=False, label="⚡ SuperScan (Deduct 2 credits · Consult Gemini/Groq Cloud AI only, skips TFLite)")
+            superscan_toggle = gr.Checkbox(value=False, label="⚡ SuperScan (Deduct 2 credits · Consult Advanced DL Model only, skips TFLite)")
             diagnose_btn = gr.Button("🔍 Diagnose Leaf", variant="primary", size="lg")
 
         with gr.Column(scale=1):

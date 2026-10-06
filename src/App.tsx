@@ -698,25 +698,21 @@ export function App() {
                           )}
                           <span
                             className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold tracking-wider uppercase border shadow-sm ${
-                              (diagnosis.ai_code === 'GE' || (!diagnosis.ai_code && diagnosis.ai_provider === 'gemini'))
+                              (diagnosis.ai_code === 'GE' || (!diagnosis.ai_code && diagnosis.ai_provider?.includes('primary')))
                                 ? 'bg-blue-950/60 border-blue-500/40 text-blue-300'
-                                : (diagnosis.ai_code === 'GQ' || diagnosis.ai_provider === 'groq')
+                                : (diagnosis.ai_code === 'GQ' || diagnosis.ai_provider?.includes('secondary'))
                                 ? 'bg-orange-950/60 border-orange-500/40 text-orange-300'
-                                : (diagnosis.ai_code === 'MI' || diagnosis.ai_provider === 'mistral')
-                                ? 'bg-purple-950/60 border-purple-500/40 text-purple-300'
                                 : 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
                             }`}
                             title={
-                              (diagnosis.ai_code === 'GE' || (!diagnosis.ai_code && diagnosis.ai_provider === 'gemini'))
-                                ? 'Processed by Gemini (GE)'
-                                : (diagnosis.ai_code === 'GQ' || diagnosis.ai_provider === 'groq')
-                                ? 'Processed by Groq (GQ)'
-                                : (diagnosis.ai_code === 'MI' || diagnosis.ai_provider === 'mistral')
-                                ? 'Processed by Mistral (MI)'
-                                : 'Processed by TFLite model (TLITE)'
+                              (diagnosis.ai_code === 'GE')
+                                ? 'Processed by Advanced DL Model [GE]'
+                                : (diagnosis.ai_code === 'GQ')
+                                ? 'Processed by Advanced DL Model [GQ]'
+                                : 'Processed by TFLite model [TLITE]'
                             }
                           >
-                            {diagnosis.ai_code || (diagnosis.ai_provider === 'groq' ? 'GQ' : diagnosis.ai_provider === 'mistral' ? 'MI' : diagnosis.ai_provider === 'gemini' ? 'GE' : 'TLITE')}
+                            {diagnosis.ai_code || (diagnosis.ai_provider === 'groq' ? 'GQ' : 'GE')}
                           </span>
                           <span className="text-xs text-slate-400">
                             {t.confidence_label}: <span className="text-white font-semibold">{diagnosis.confidence.toFixed(1)}%</span>
