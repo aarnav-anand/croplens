@@ -263,61 +263,67 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str,
     confidence = 96.5
 
     if gemini_key:
-        try:
-            buf = io.BytesIO()
-            image.convert("RGB").save(buf, format="JPEG", quality=85)
-            b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
-            prompt = (
-                f"You are a plant pathologist. The crop is {crop_name or 'Crop'}. "
-                "Diagnose the leaf disease in this format:\n"
-                "IS_LEAF: YES\nDISEASE: <disease name>\n"
-                "ENGLISH:\n- point 1\n- point 2\n- point 3\n- point 4\n"
-                "HINDI:\n- point 1 in Hindi\n- point 2 in Hindi\n- point 3 in Hindi\n- point 4 in Hindi"
-            )
-            payload = {"contents": [{"parts": [{"inlineData": {"mimeType": "image/jpeg", "data": b64}}, {"text": prompt}]}]}
-            res = requests.post(url, json=payload, timeout=25)
-            if res.ok:
-                resp_data = res.json()
-                text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
-                for line in text.splitlines():
-                    if line.startswith("DISEASE:"):
-                        disease = line.split(":", 1)[1].strip()
-                        ai_code = "GE"
+        for gm_model in ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"]:
+            try:
+                buf = io.BytesIO()
+                image.convert("RGB").save(buf, format="JPEG", quality=85)
+                b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{gm_model}:generateContent?key={gemini_key}"
+                prompt = (
+                    f"You are a plant pathologist. The crop is {crop_name or 'Crop'}. "
+                    "Diagnose the leaf disease in this format:\n"
+                    "IS_LEAF: YES\nDISEASE: <disease name>\n"
+                    "ENGLISH:\n- point 1\n- point 2\n- point 3\n- point 4\n"
+                    "HINDI:\n- point 1 in Hindi\n- point 2 in Hindi\n- point 3 in Hindi\n- point 4 in Hindi"
+                )
+                payload = {"contents": [{"parts": [{"inlineData": {"mimeType": "image/jpeg", "data": b64}}, {"text": prompt}]}]}
+                res = requests.post(url, json=payload, timeout=25)
+                if res.ok:
+                    resp_data = res.json()
+                    text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
+                    for line in text.splitlines():
+                        if line.startswith("DISEASE:"):
+                            disease = line.split(":", 1)[1].strip()
+                            ai_code = "GE"
+                            break
+                    if disease:
                         break
-        except Exception as e:
-            print("Gemini API fallback:", e)
+            except Exception as e:
+                print(f"Gemini API fallback ({gm_model}):", e)
 
     # Groq Vision Multimodal Fallback
     if not disease and groq_key:
-        try:
-            buf = io.BytesIO()
-            image.convert("RGB").save(buf, format="JPEG", quality=85)
-            b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-            headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
-            payload = {
-                "model": "llama-3.2-11b-vision-preview",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": f"You are a plant pathologist. Crop: {crop_name or 'Crop'}. DISEASE: <disease name>"},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
-                        ]
-                    }
-                ],
-                "temperature": 0.2
-            }
-            res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=25)
-            if res.ok:
-                text = res.json()["choices"][0]["message"]["content"]
-                for line in text.splitlines():
-                    if line.startswith("DISEASE:"):
-                        disease = line.split(":", 1)[1].strip()
-                        ai_code = "GQ"
+        for gq_model in ["llama-3.2-11b-vision-preview", "qwen/qwen3.8-27b"]:
+            try:
+                buf = io.BytesIO()
+                image.convert("RGB").save(buf, format="JPEG", quality=85)
+                b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                headers = {"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"}
+                payload = {
+                    "model": gq_model,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": f"You are a plant pathologist. Crop: {crop_name or 'Crop'}. DISEASE: <disease name>"},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
+                            ]
+                        }
+                    ],
+                    "temperature": 0.2
+                }
+                res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload, timeout=25)
+                if res.ok:
+                    text = res.json()["choices"][0]["message"]["content"]
+                    for line in text.splitlines():
+                        if line.startswith("DISEASE:"):
+                            disease = line.split(":", 1)[1].strip()
+                            ai_code = "GQ"
+                            break
+                    if disease:
                         break
-        except Exception as e:
-            print("Groq API fallback:", e)
+            except Exception as e:
+                print(f"Groq API fallback ({gq_model}):", e)
 
     if superscan and not disease:
         return "⚠️ SuperScan cloud inference (Advanced DL Model) did not respond. TFLite model was skipped as requested. Credits were not deducted.", "", "", ""
