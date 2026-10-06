@@ -31,6 +31,37 @@ interface OutbreakReportItem {
   reported_at: string;
 }
 
+// Compress and optimize image on client before sending to AI APIs
+function compressImage(dataUrl: string, maxDimension = 1200, quality = 0.85): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDimension || height > maxDimension) {
+        if (width > height) {
+          height = Math.round((height * maxDimension) / width);
+          width = maxDimension;
+        } else {
+          width = Math.round((width * maxDimension) / height);
+          height = maxDimension;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      } else {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
 export function App() {
   const [lang, setLang] = useState<'en' | 'hi'>('en');
   const [farmerDif, setFarmerDif] = useState<string | null>(() => localStorage.getItem('croplens_dif'));
@@ -123,16 +154,19 @@ export function App() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = () => {
-      setImageSrc(reader.result as string);
+    reader.onload = async () => {
+      const raw = reader.result as string;
+      const optimized = await compressImage(raw);
+      setImageSrc(optimized);
       setDiagnosis(null);
       setShowReport(false);
     };
     reader.readAsDataURL(file);
   };
 
-  const handleCameraCapture = (base64: string) => {
-    setImageSrc(base64);
+  const handleCameraCapture = async (base64: string) => {
+    const optimized = await compressImage(base64);
+    setImageSrc(optimized);
     setShowCamera(false);
     setDiagnosis(null);
     setShowReport(false);
@@ -668,6 +702,8 @@ export function App() {
                                 ? 'bg-blue-950/60 border-blue-500/40 text-blue-300'
                                 : (diagnosis.ai_code === 'GQ' || diagnosis.ai_provider === 'groq')
                                 ? 'bg-orange-950/60 border-orange-500/40 text-orange-300'
+                                : (diagnosis.ai_code === 'MI' || diagnosis.ai_provider === 'mistral')
+                                ? 'bg-purple-950/60 border-purple-500/40 text-purple-300'
                                 : 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
                             }`}
                             title={
@@ -675,10 +711,12 @@ export function App() {
                                 ? 'Processed by Gemini (GE)'
                                 : (diagnosis.ai_code === 'GQ' || diagnosis.ai_provider === 'groq')
                                 ? 'Processed by Groq (GQ)'
+                                : (diagnosis.ai_code === 'MI' || diagnosis.ai_provider === 'mistral')
+                                ? 'Processed by Mistral (MI)'
                                 : 'Processed by TFLite model (TLITE)'
                             }
                           >
-                            {diagnosis.ai_code || (diagnosis.ai_provider === 'groq' ? 'GQ' : diagnosis.ai_provider === 'gemini' ? 'GE' : 'TLITE')}
+                            {diagnosis.ai_code || (diagnosis.ai_provider === 'groq' ? 'GQ' : diagnosis.ai_provider === 'mistral' ? 'MI' : diagnosis.ai_provider === 'gemini' ? 'GE' : 'TLITE')}
                           </span>
                           <span className="text-xs text-slate-400">
                             {t.confidence_label}: <span className="text-white font-semibold">{diagnosis.confidence.toFixed(1)}%</span>

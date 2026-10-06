@@ -73,6 +73,7 @@ const reportsStore: OutbreakReport[] = [
 // Initialize Gemini Client
 const geminiApiKey = process.env.GEMINI_API_KEY;
 const groqApiKey = process.env.GROQ_API_KEY;
+const mistralApiKey = process.env.MISTRAL_API_KEY;
 const ai = geminiApiKey
   ? new GoogleGenAI({
       apiKey: geminiApiKey,
@@ -420,88 +421,193 @@ RULES:
 - If unsure, commit to the most likely disease based on visible symptoms.
 - Do not add any text outside this format.`;
 
-    // 1. Attempt Gemini diagnosis if client initialized
+    let geminiErrorMsg: string | null = ai ? null : 'GEMINI_API_KEY is not configured';
+    let groqErrorMsg: string | null = groqApiKey ? null : 'GROQ_API_KEY is not configured';
+    let mistralErrorMsg: string | null = mistralApiKey ? null : 'MISTRAL_API_KEY is not configured';
+
+    // 1. Attempt Gemini diagnosis (try 2.5-flash first, then flash-latest, 2.0-flash, 1.5-flash)
     if (ai) {
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
-          contents: [
-            {
-              parts: [
-                {
-                  inlineData: {
-                    mimeType: 'image/jpeg',
-                    data: cleanB64,
+      const candidateModels = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-3.8-flash'];
+      for (const m of candidateModels) {
+        try {
+          console.log(`🌿 Trying Gemini model: ${m}...`);
+          const response = await ai.models.generateContent({
+            model: m,
+            contents: [
+              {
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: 'image/jpeg',
+                      data: cleanB64,
+                    },
                   },
-                },
-                {
-                  text: prompt,
-                },
-              ],
-            },
-          ],
-        });
-
-        const rawText = response.text || '';
-        const parsed = parseAiResponse(rawText);
-
-        if (!parsed.is_leaf) {
-          return res.json({
-            is_leaf: false,
-            confidence: 98,
-            disease: 'Not a leaf',
-            crop: cropName || '',
-            treatment_en: null,
-            treatment_hi: null,
-            info: null,
-            ai_provider: 'gemini',
-            ai_code: 'GE',
-            is_superscan: Boolean(isSuperScan),
+                  {
+                    text: prompt,
+                  },
+                ],
+              },
+            ],
           });
+
+          const rawText = response.text || '';
+          if (rawText) {
+            const parsed = parseAiResponse(rawText);
+
+            if (!parsed.is_leaf) {
+              return res.json({
+                is_leaf: false,
+                confidence: 98,
+                disease: 'Not a leaf',
+                crop: cropName || '',
+                treatment_en: null,
+                treatment_hi: null,
+                info: null,
+                ai_provider: 'gemini',
+                ai_code: 'GE',
+                is_superscan: Boolean(isSuperScan),
+              });
+            }
+
+            const diseaseName = parsed.disease || 'Leaf Spot';
+            const info = getDiseaseInfo(diseaseName);
+
+            return res.json({
+              is_leaf: true,
+              confidence: 97.5,
+              disease: diseaseName,
+              crop: cropName || '',
+              treatment_en: parsed.en_points || [
+                info.treatment_en,
+                info.prevention_en,
+                'Inspect adjoining crops for symptom propagation.',
+                'Maintain optimal soil aeration and balanced nitrogen levels.',
+              ],
+              treatment_hi: parsed.hi_points || [
+                info.treatment_hi,
+                info.prevention_hi,
+                'आसपास की फसलों में संक्रमण के लक्षणों की जांच करें।',
+                'खेत में जल निकास और संतुलित उर्वरक प्रबंधन रखें।',
+              ],
+              info,
+              ai_provider: 'gemini',
+              ai_code: 'GE',
+              is_superscan: Boolean(isSuperScan),
+            });
+          }
+        } catch (geminiError: any) {
+          geminiErrorMsg = `Gemini (${m}): ${geminiError?.message || String(geminiError)}`;
+          console.warn(`Gemini model ${m} failed:`, geminiError?.message || geminiError);
         }
-
-        const diseaseName = parsed.disease || 'Leaf Spot';
-        const info = getDiseaseInfo(diseaseName);
-
-        return res.json({
-          is_leaf: true,
-          confidence: 97.5,
-          disease: diseaseName,
-          crop: cropName || '',
-          treatment_en: parsed.en_points || [
-            info.treatment_en,
-            info.prevention_en,
-            'Inspect adjoining crops for symptom propagation.',
-            'Maintain optimal soil aeration and balanced nitrogen levels.',
-          ],
-          treatment_hi: parsed.hi_points || [
-            info.treatment_hi,
-            info.prevention_hi,
-            'आसपास की फसलों में संक्रमण के लक्षणों की जांच करें।',
-            'खेत में जल निकास और संतुलित उर्वरक प्रबंधन रखें।',
-          ],
-          info,
-          ai_provider: 'gemini',
-          ai_code: 'GE',
-          is_superscan: Boolean(isSuperScan),
-        });
-      } catch (geminiError) {
-        console.warn('Gemini diagnosis failed, attempting Groq fallback:', geminiError);
       }
     }
 
-    // 2. Attempt Groq Vision (llama-3.2-11b-vision-preview) Fallback if Gemini failed or was unconfigured
+    // 2. Attempt Groq Vision (llama-3.2-11b-vision-preview / llama-3.2-90b-vision-preview)
     if (groqApiKey) {
+      const groqModels = ['llama-3.2-11b-vision-preview', 'llama-3.2-90b-vision-preview'];
+      for (const gm of groqModels) {
+        try {
+          console.log(`🔄 Attempting Groq Vision (${gm}) diagnosis fallback...`);
+          const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${groqApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: gm,
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    {
+                      type: 'text',
+                      text: prompt,
+                    },
+                    {
+                      type: 'image_url',
+                      image_url: {
+                        url: `data:image/jpeg;base64,${cleanB64}`,
+                      },
+                    },
+                  ],
+                },
+              ],
+              temperature: 0.2,
+            }),
+          });
+
+          if (groqRes.ok) {
+            const groqData = await groqRes.json();
+            const rawText = groqData?.choices?.[0]?.message?.content || '';
+            if (rawText) {
+              const parsed = parseAiResponse(rawText);
+
+              if (!parsed.is_leaf) {
+                return res.json({
+                  is_leaf: false,
+                  confidence: 97,
+                  disease: 'Not a leaf',
+                  crop: cropName || '',
+                  treatment_en: null,
+                  treatment_hi: null,
+                  info: null,
+                  ai_provider: 'groq',
+                  ai_code: 'GQ',
+                  is_superscan: Boolean(isSuperScan),
+                });
+              }
+
+              const diseaseName = parsed.disease || 'Leaf Spot';
+              const info = getDiseaseInfo(diseaseName);
+
+              return res.json({
+                is_leaf: true,
+                confidence: 96.0,
+                disease: diseaseName,
+                crop: cropName || '',
+                treatment_en: parsed.en_points || [
+                  info.treatment_en,
+                  info.prevention_en,
+                  'Inspect adjoining crops for symptom propagation.',
+                  'Apply organic neem oil solution or recommended preventive fungicide.',
+                ],
+                treatment_hi: parsed.hi_points || [
+                  info.treatment_hi,
+                  info.prevention_hi,
+                  'आसपास की फसलों में संक्रमण के लक्षणों की जांच करें।',
+                  'नीम के तेल का घोल या अनुशंसित फफूंदनाशक का छिड़काव करें।',
+                ],
+                info,
+                ai_provider: 'groq',
+                ai_code: 'GQ',
+                is_superscan: Boolean(isSuperScan),
+              });
+            }
+          } else {
+            const errText = await groqRes.text();
+            groqErrorMsg = `Groq ${gm} (HTTP ${groqRes.status}): ${errText}`;
+            console.warn('Groq API fallback error:', groqRes.status, errText);
+          }
+        } catch (groqError: any) {
+          groqErrorMsg = `Groq ${gm}: ${groqError?.message || String(groqError)}`;
+          console.warn('Groq AI fallback failed:', groqError);
+        }
+      }
+    }
+
+    // 3. Attempt Mistral Multimodal (pixtral-12b-2409) if configured in environment
+    if (mistralApiKey) {
       try {
-        console.log('🔄 Attempting Groq Vision (llama-3.2-11b-vision-preview) diagnosis fallback...');
-        const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        console.log('🔄 Attempting Mistral AI (pixtral-12b-2409) diagnosis fallback...');
+        const mistralRes = await fetch('https://api.mistral.ai/v1/chat/completions', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${groqApiKey}`,
+            'Authorization': `Bearer ${mistralApiKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'llama-3.2-11b-vision-preview',
+            model: 'pixtral-12b-2409',
             messages: [
               {
                 role: 'user',
@@ -512,9 +618,7 @@ RULES:
                   },
                   {
                     type: 'image_url',
-                    image_url: {
-                      url: `data:image/jpeg;base64,${cleanB64}`,
-                    },
+                    image_url: `data:image/jpeg;base64,${cleanB64}`,
                   },
                 ],
               },
@@ -523,9 +627,9 @@ RULES:
           }),
         });
 
-        if (groqRes.ok) {
-          const groqData = await groqRes.json();
-          const rawText = groqData?.choices?.[0]?.message?.content || '';
+        if (mistralRes.ok) {
+          const mistralData = await mistralRes.json();
+          const rawText = mistralData?.choices?.[0]?.message?.content || '';
           if (rawText) {
             const parsed = parseAiResponse(rawText);
 
@@ -538,8 +642,8 @@ RULES:
                 treatment_en: null,
                 treatment_hi: null,
                 info: null,
-                ai_provider: 'groq',
-                ai_code: 'GQ',
+                ai_provider: 'mistral',
+                ai_code: 'MI',
                 is_superscan: Boolean(isSuperScan),
               });
             }
@@ -549,7 +653,7 @@ RULES:
 
             return res.json({
               is_leaf: true,
-              confidence: 96.0,
+              confidence: 95.5,
               disease: diseaseName,
               crop: cropName || '',
               treatment_en: parsed.en_points || [
@@ -565,17 +669,17 @@ RULES:
                 'नीम के तेल का घोल या अनुशंसित फफूंदनाशक का छिड़काव करें।',
               ],
               info,
-              ai_provider: 'groq',
-              ai_code: 'GQ',
+              ai_provider: 'mistral',
+              ai_code: 'MI',
               is_superscan: Boolean(isSuperScan),
             });
           }
         } else {
-          const errText = await groqRes.text();
-          console.warn('Groq API fallback error:', groqRes.status, errText);
+          const errText = await mistralRes.text();
+          mistralErrorMsg = `Mistral HTTP ${mistralRes.status}: ${errText}`;
         }
-      } catch (groqError) {
-        console.warn('Groq AI fallback failed:', groqError);
+      } catch (mistralErr: any) {
+        mistralErrorMsg = `Mistral: ${mistralErr?.message || String(mistralErr)}`;
       }
     }
 
@@ -583,7 +687,21 @@ RULES:
     if (isSuperScan) {
       return res.status(503).json({
         error: 'superscan_unavailable',
-        message: 'SuperScan cloud models (Gemini / Groq) are currently unreachable. Credits were not deducted. Please retry or use Standard Scan.',
+        message: `SuperScan cloud models unreachable.
+- Gemini: ${geminiErrorMsg || 'not attempted'}
+- Groq: ${groqErrorMsg || 'not attempted'}
+- Mistral: ${mistralErrorMsg || 'not attempted'}
+Tip: If you recently added keys in Vercel, please trigger a Redeployment on Vercel for them to take effect. Credits were not deducted.`,
+        diagnostics: {
+          gemini: geminiErrorMsg,
+          groq: groqErrorMsg,
+          mistral: mistralErrorMsg,
+          keys_configured: {
+            gemini: Boolean(geminiApiKey),
+            groq: Boolean(groqApiKey),
+            mistral: Boolean(mistralApiKey),
+          },
+        },
       });
     }
 
