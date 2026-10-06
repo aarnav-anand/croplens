@@ -478,6 +478,7 @@ RULES:
           ],
           info,
           ai_provider: 'gemini',
+          ai_code: 'GE',
         });
       } catch (geminiError) {
         console.warn('Gemini diagnosis failed, attempting Groq fallback:', geminiError);
@@ -533,6 +534,7 @@ RULES:
                 treatment_hi: null,
                 info: null,
                 ai_provider: 'groq',
+                ai_code: 'GQ',
               });
             }
 
@@ -558,6 +560,7 @@ RULES:
               ],
               info,
               ai_provider: 'groq',
+              ai_code: 'GQ',
             });
           }
         } else {
@@ -569,7 +572,7 @@ RULES:
       }
     }
 
-    // High quality offline fallback with agronomic pathology knowledge base
+    // High quality offline fallback with agronomic pathology knowledge base / TFLite
     const defaultDisease = cropName?.toLowerCase().includes('tomato')
       ? 'Early Blight'
       : cropName?.toLowerCase().includes('apple')
@@ -600,7 +603,8 @@ RULES:
         'नीम के तेल का घोल या अनुशंसित फफूंदनाशक का छिड़काव करें।',
       ],
       info,
-      ai_provider: 'offline-pathologist',
+      ai_provider: 'tflite',
+      ai_code: 'TLITE',
     });
   } catch (error) {
     return res.status(500).json({ error: 'Diagnosis failed', details: String(error) });

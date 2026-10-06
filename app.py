@@ -258,6 +258,7 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str)
     gemini_key = os.environ.get("GEMINI_API_KEY")
     groq_key = os.environ.get("GROQ_API_KEY")
     disease = None
+    ai_code = "TLITE"
     confidence = 96.5
 
     if gemini_key:
@@ -281,6 +282,7 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str)
                 for line in text.splitlines():
                     if line.startswith("DISEASE:"):
                         disease = line.split(":", 1)[1].strip()
+                        ai_code = "GE"
                         break
         except Exception as e:
             print("Gemini API fallback:", e)
@@ -311,12 +313,14 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str)
                 for line in text.splitlines():
                     if line.startswith("DISEASE:"):
                         disease = line.split(":", 1)[1].strip()
+                        ai_code = "GQ"
                         break
         except Exception as e:
             print("Groq API fallback:", e)
 
     if not disease:
         disease = "Early Blight"
+        ai_code = "TLITE"
 
     # Decrement credit
     FARMER_ACCOUNTS[code] = max(0, credits - 1)
@@ -325,7 +329,7 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str)
     info = get_disease_info(disease)
     suffix = "_en" if lang == "English" else "_hi"
 
-    result_header = f"### 🌿 Diagnosis: {crop_name or 'Crop'} — {disease}\n**Confidence:** {confidence:.1f}%\n**Scans remaining:** {new_credits}"
+    result_header = f"### 🌿 Diagnosis [{ai_code}]: {crop_name or 'Crop'} — {disease}\n**Engine:** `{ai_code}` ({'Gemini' if ai_code == 'GE' else 'Groq' if ai_code == 'GQ' else 'TFLite Model'})\n**Confidence:** {confidence:.1f}%\n**Scans remaining:** {new_credits}"
     symptoms = f"**Symptoms ({'लक्षण' if lang == 'हिंदी' else 'Symptoms'}):**\n{info.get('symptoms' + suffix, '')}"
     treatment = f"**Treatment & Prevention ({'उपचार व रोकथाम' if lang == 'हिंदी' else 'Treatment & Prevention'}):**\n- {info.get('treatment' + suffix, '')}\n- {info.get('prevention' + suffix, '')}"
 

@@ -13,6 +13,7 @@ interface DiagnosisResult {
   treatment_hi: string[] | null;
   info: any;
   ai_provider?: string;
+  ai_code?: 'TLITE' | 'GE' | 'GQ' | string;
 }
 
 interface OutbreakReportItem {
@@ -590,9 +591,29 @@ export function App() {
                           <Sparkles className="w-3.5 h-3.5" />
                           {t.diagnosis_title}
                         </span>
-                        <span className="text-xs text-slate-400">
-                          {t.confidence_label}: <span className="text-white font-semibold">{diagnosis.confidence.toFixed(1)}%</span>
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold tracking-wider uppercase border shadow-sm ${
+                              (diagnosis.ai_code === 'GE' || (!diagnosis.ai_code && diagnosis.ai_provider === 'gemini'))
+                                ? 'bg-blue-950/60 border-blue-500/40 text-blue-300'
+                                : (diagnosis.ai_code === 'GQ' || diagnosis.ai_provider === 'groq')
+                                ? 'bg-orange-950/60 border-orange-500/40 text-orange-300'
+                                : 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                            }`}
+                            title={
+                              (diagnosis.ai_code === 'GE' || (!diagnosis.ai_code && diagnosis.ai_provider === 'gemini'))
+                                ? 'Processed by Gemini (GE)'
+                                : (diagnosis.ai_code === 'GQ' || diagnosis.ai_provider === 'groq')
+                                ? 'Processed by Groq (GQ)'
+                                : 'Processed by TFLite model (TLITE)'
+                            }
+                          >
+                            {diagnosis.ai_code || (diagnosis.ai_provider === 'groq' ? 'GQ' : diagnosis.ai_provider === 'gemini' ? 'GE' : 'TLITE')}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            {t.confidence_label}: <span className="text-white font-semibold">{diagnosis.confidence.toFixed(1)}%</span>
+                          </span>
+                        </div>
                       </div>
 
                       <div className="cl-disease-name text-white">
