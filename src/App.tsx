@@ -14,6 +14,7 @@ interface DiagnosisResult {
   info: any;
   ai_provider?: string;
   ai_code?: 'TLITE' | 'GE' | 'GQ' | string;
+  is_superscan?: boolean;
 }
 
 interface OutbreakReportItem {
@@ -46,6 +47,7 @@ export function App() {
   const [showCamera, setShowCamera] = useState(false);
   const [cropInput, setCropInput] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isSuperScan, setIsSuperScan] = useState(false);
   const [diagnosis, setDiagnosis] = useState<DiagnosisResult | null>(null);
   const [adviceLang, setAdviceLang] = useState<'en' | 'hi'>('en');
 
@@ -143,8 +145,13 @@ export function App() {
     }
     if (!imageSrc) return;
 
-    if (farmerCredits !== null && farmerCredits <= 0) {
-      alert(t.credits_exhausted_title);
+    const creditsNeeded = isSuperScan ? 2 : 1;
+    if (farmerCredits !== null && farmerCredits < creditsNeeded) {
+      if (isSuperScan) {
+        alert(t.superscan_insufficient.replace('{n}', String(farmerCredits)));
+      } else {
+        alert(t.credits_exhausted_title);
+      }
       return;
     }
 
@@ -159,18 +166,25 @@ export function App() {
         body: JSON.stringify({
           imageBase64: imageSrc,
           cropName: cropInput.trim(),
+          isSuperScan,
         }),
       });
 
-      const data: DiagnosisResult = await res.json();
+      const data = await res.json();
+
+      if (!res.ok) {
+        alert(data.message || 'Diagnosis failed. Please retry.');
+        return;
+      }
+
       setDiagnosis(data);
 
-      if (data.is_leaf && farmerCredits !== null && farmerCredits > 0 && farmerDif) {
-        // Decrement credit on successful leaf diagnosis
+      if (data.is_leaf && farmerCredits !== null && farmerCredits >= creditsNeeded && farmerDif) {
+        // Decrement credits on successful leaf diagnosis (2 for SuperScan, 1 for Standard)
         const decRes = await fetch('/api/farmer/decrement', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dif_code: farmerDif }),
+          body: JSON.stringify({ dif_code: farmerDif, amount: creditsNeeded }),
         });
         const decData = await decRes.json();
         if (decData.credits !== undefined) {
@@ -536,6 +550,52 @@ export function App() {
                         ))}
                       </div>
 
+                      {/* Scan Mode Selector: Standard Scan (1 credit) vs SuperScan (2 credits) */}
+                      <div className="pt-1">
+                        <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950/70 border border-slate-800 rounded-xl">
+                          <button
+                            type="button"
+                            onClick={() => setIsSuperScan(false)}
+                            className={`py-2 px-3 rounded-lg text-left transition-all flex flex-col justify-center ${
+                              !isSuperScan
+                                ? 'bg-slate-800/90 border border-emerald-500/40 text-white shadow-sm'
+                                : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between w-full">
+                              <span className="text-xs font-bold text-slate-200">{t.standard_scan_label}</span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 font-mono text-emerald-400 font-semibold">1 Credit</span>
+                            </div>
+                            <span className="text-[11px] text-slate-400 mt-0.5 leading-tight">{t.standard_scan_desc}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (farmerCredits !== null && farmerCredits < 2) {
+                                alert(t.superscan_insufficient.replace('{n}', String(farmerCredits)));
+                                return;
+                              }
+                              setIsSuperScan(true);
+                            }}
+                            className={`py-2 px-3 rounded-lg text-left transition-all flex flex-col justify-center relative overflow-hidden ${
+                              isSuperScan
+                                ? 'bg-gradient-to-r from-amber-950/80 to-orange-950/80 border border-amber-500/60 text-white shadow-md shadow-amber-950/40'
+                                : 'text-slate-400 hover:text-slate-200 border border-transparent'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between w-full">
+                              <span className="text-xs font-extrabold text-amber-300 flex items-center gap-1">
+                                <span>⚡</span>
+                                <span>{t.superscan_label}</span>
+                              </span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 font-mono text-amber-300 font-bold">2 Credits</span>
+                            </div>
+                            <span className="text-[11px] text-amber-200/70 mt-0.5 leading-tight">{t.superscan_desc}</span>
+                          </button>
+                        </div>
+                      </div>
+
                       <div className="flex gap-2 pt-1">
                         <input
                           type="text"
@@ -548,7 +608,11 @@ export function App() {
                           type="button"
                           onClick={handleAnalyze}
                           disabled={isAnalyzing || !cropInput.trim()}
-                          className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-sm flex items-center gap-2 transition-all shadow-lg shadow-emerald-950/40 disabled:opacity-50"
+                          className={`px-5 py-2.5 text-white font-semibold rounded-xl text-sm flex items-center gap-2 transition-all shadow-lg disabled:opacity-50 ${
+                            isSuperScan
+                              ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 shadow-amber-950/50'
+                              : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-950/40'
+                          }`}
                         >
                           {isAnalyzing ? (
                             <>
@@ -557,7 +621,7 @@ export function App() {
                             </>
                           ) : (
                             <>
-                              <span>{t.crop_analyze_btn}</span>
+                              <span>{isSuperScan ? `⚡ ${t.superscan_label}` : t.crop_analyze_btn}</span>
                               <ArrowRight className="w-4 h-4" />
                             </>
                           )}
@@ -592,6 +656,12 @@ export function App() {
                           {t.diagnosis_title}
                         </span>
                         <div className="flex items-center gap-2">
+                          {diagnosis.is_superscan && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-extrabold uppercase bg-amber-500/20 border border-amber-500/60 text-amber-300 shadow-sm flex items-center gap-1">
+                              <span>⚡</span>
+                              <span>SuperScan</span>
+                            </span>
+                          )}
                           <span
                             className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold tracking-wider uppercase border shadow-sm ${
                               (diagnosis.ai_code === 'GE' || (!diagnosis.ai_code && diagnosis.ai_provider === 'gemini'))

@@ -246,14 +246,15 @@ def is_water(lat: float, lng: float) -> bool:
         pass
     return False
 
-def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str):
+def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str, superscan: bool = False):
     if image is None:
         return "⚠️ Please upload or capture a leaf photo first.", "", "", ""
 
     code = (dif_code or "AB12").strip().upper()
     credits = FARMER_ACCOUNTS.get(code, 10)
-    if credits <= 0:
-        return "🚫 Scans exhausted for this DIF code. Please purchase more scans.", "", "", ""
+    credits_needed = 2 if superscan else 1
+    if credits < credits_needed:
+        return f"🚫 Insufficient scans. SuperScan requires 2 credits (you have {credits}). Please select Standard Scan or top up.", "", "", ""
 
     gemini_key = os.environ.get("GEMINI_API_KEY")
     groq_key = os.environ.get("GROQ_API_KEY")
@@ -318,18 +319,22 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str)
         except Exception as e:
             print("Groq API fallback:", e)
 
+    if superscan and not disease:
+        return "⚠️ SuperScan cloud models (Gemini / Groq) did not respond. TFLite model was skipped as requested. Credits were not deducted.", "", "", ""
+
     if not disease:
         disease = "Early Blight"
         ai_code = "TLITE"
 
-    # Decrement credit
-    FARMER_ACCOUNTS[code] = max(0, credits - 1)
+    # Decrement credit (2 for SuperScan, 1 for Standard)
+    FARMER_ACCOUNTS[code] = max(0, credits - credits_needed)
     new_credits = FARMER_ACCOUNTS[code]
 
     info = get_disease_info(disease)
     suffix = "_en" if lang == "English" else "_hi"
 
-    result_header = f"### 🌿 Diagnosis [{ai_code}]: {crop_name or 'Crop'} — {disease}\n**Engine:** `{ai_code}` ({'Gemini' if ai_code == 'GE' else 'Groq' if ai_code == 'GQ' else 'TFLite Model'})\n**Confidence:** {confidence:.1f}%\n**Scans remaining:** {new_credits}"
+    superscan_tag = " ⚡ SuperScan" if superscan else ""
+    result_header = f"### 🌿 Diagnosis [{ai_code}]{superscan_tag}: {crop_name or 'Crop'} — {disease}\n**Engine:** `{ai_code}` ({'Gemini' if ai_code == 'GE' else 'Groq' if ai_code == 'GQ' else 'TFLite Model'})\n**Confidence:** {confidence:.1f}%\n**Scans remaining:** {new_credits}"
     symptoms = f"**Symptoms ({'लक्षण' if lang == 'हिंदी' else 'Symptoms'}):**\n{info.get('symptoms' + suffix, '')}"
     treatment = f"**Treatment & Prevention ({'उपचार व रोकथाम' if lang == 'हिंदी' else 'Treatment & Prevention'}):**\n- {info.get('treatment' + suffix, '')}\n- {info.get('prevention' + suffix, '')}"
 
@@ -416,6 +421,7 @@ with gr.Blocks(title="CropLens — AI Crop Doctor", css=custom_css, theme=gr.the
         with gr.Column(scale=1):
             leaf_img = gr.Image(type="pil", label="Leaf Photo (Upload or Webcam)", sources=["upload", "webcam"])
             crop_name_input = gr.Textbox(value="Tomato", label="Which crop is this leaf from?", placeholder="e.g. Tomato, Apple, Corn...")
+            superscan_toggle = gr.Checkbox(value=False, label="⚡ SuperScan (Deduct 2 credits · Consult Gemini/Groq Cloud AI only, skips TFLite)")
             diagnose_btn = gr.Button("🔍 Diagnose Leaf", variant="primary", size="lg")
 
         with gr.Column(scale=1):
@@ -425,7 +431,7 @@ with gr.Blocks(title="CropLens — AI Crop Doctor", css=custom_css, theme=gr.the
 
     diagnose_btn.click(
         fn=diagnose_leaf,
-        inputs=[leaf_img, crop_name_input, dif_input, lang_choice],
+        inputs=[leaf_img, crop_name_input, dif_input, lang_choice, superscan_toggle],
         outputs=[diagnosis_output, advice_output, dif_status, detected_disease]
     )
 

@@ -64,6 +64,12 @@ export interface TranslationBundle {
   modal_lang_label: string;
   view_reports: string;
   demo_codes_hint: string;
+  superscan_label: string;
+  superscan_desc: string;
+  superscan_badge: string;
+  superscan_insufficient: string;
+  standard_scan_label: string;
+  standard_scan_desc: string;
 }
 
 export const TEXT: Record<"en" | "hi", TranslationBundle> = {
@@ -138,6 +144,12 @@ export const TEXT: Record<"en" | "hi", TranslationBundle> = {
     modal_lang_label: "View advice in",
     view_reports: "Recent Community Reports",
     demo_codes_hint: "Demo DIF Codes: AB12 (10 scans), CD34 (5 scans), EF56 (25 scans)",
+    superscan_label: "⚡ SuperScan",
+    superscan_desc: "Cloud AI Deep Diagnosis (Gemini / Groq only) · Uses 2 Credits",
+    superscan_badge: "⚡ SuperScan",
+    superscan_insufficient: "SuperScan requires at least 2 credits. Please switch to Standard Scan or top up.",
+    standard_scan_label: "Standard Scan",
+    standard_scan_desc: "AI pathology scan · Uses 1 Credit",
   },
   hi: {
     app_title: "🌱 क्रॉपलेंस",
@@ -210,5 +222,11 @@ export const TEXT: Record<"en" | "hi", TranslationBundle> = {
     modal_lang_label: "सलाह की भाषा",
     view_reports: "हालिया समुदाय रिपोर्ट्स",
     demo_codes_hint: "डेमो DIF कोड: AB12 (10 स्कैन), CD34 (5 स्कैन), EF56 (25 स्कैन)",
+    superscan_label: "⚡ सुपरस्कैन (SuperScan)",
+    superscan_desc: "क्लाउड एआई गहन जांच (केवल Gemini / Groq) · 2 क्रेडिट",
+    superscan_badge: "⚡ सुपरस्कैन",
+    superscan_insufficient: "सुपरस्कैन के लिए कम से कम 2 क्रेडिट आवश्यक हैं। कृपया साधारण स्कैन चुनें या क्रेडिट खरीदें।",
+    standard_scan_label: "साधारण स्कैन",
+    standard_scan_desc: "एआई जांच · 1 क्रेडिट",
   },
 };

@@ -141,6 +141,7 @@ app.post('/api/farmer/decrement', async (req, res) => {
   try {
     const rawCode = (req.body?.dif_code || '').trim().toUpperCase();
     if (!rawCode) return res.status(400).json({ error: 'missing_dif' });
+    const deductAmount = Math.max(1, parseInt(req.body?.amount || '1', 10));
 
     if (supabaseUrl && supabaseKey) {
       try {
@@ -152,7 +153,7 @@ app.post('/api/farmer/decrement', async (req, res) => {
           if (data && data.length > 0) {
             const farmerId = data[0].id;
             const current = data[0].croplens ?? 0;
-            const updated = Math.max(0, current - 1);
+            const updated = Math.max(0, current - deductAmount);
             await fetch(`${supabaseUrl}/rest/v1/farmers?id=eq.${farmerId}`, {
               method: 'PATCH',
               headers: {
@@ -162,7 +163,7 @@ app.post('/api/farmer/decrement', async (req, res) => {
               },
               body: JSON.stringify({ croplens: updated }),
             });
-            return res.json({ success: true, credits: updated });
+            return res.json({ success: true, credits: updated, deducted: deductAmount });
           }
         }
       } catch (err) {
@@ -171,9 +172,9 @@ app.post('/api/farmer/decrement', async (req, res) => {
     }
 
     const current = farmerStore.get(rawCode) ?? 10;
-    const updated = Math.max(0, current - 1);
+    const updated = Math.max(0, current - deductAmount);
     farmerStore.set(rawCode, updated);
-    return res.json({ success: true, credits: updated });
+    return res.json({ success: true, credits: updated, deducted: deductAmount });
   } catch (error) {
     return res.status(500).json({ error: 'server_error', details: String(error) });
   }
@@ -382,7 +383,7 @@ function parseAiResponse(text: string) {
 // Diagnosis endpoint
 app.post('/api/diagnose', async (req, res) => {
   try {
-    const { imageBase64, cropName } = req.body;
+    const { imageBase64, cropName, isSuperScan } = req.body;
     if (!imageBase64) {
       return res.status(400).json({ error: 'Missing imageBase64' });
     }
@@ -419,7 +420,7 @@ RULES:
 - If unsure, commit to the most likely disease based on visible symptoms.
 - Do not add any text outside this format.`;
 
-    // Attempt Gemini diagnosis if client initialized
+    // 1. Attempt Gemini diagnosis if client initialized
     if (ai) {
       try {
         const response = await ai.models.generateContent({
@@ -453,6 +454,9 @@ RULES:
             treatment_en: null,
             treatment_hi: null,
             info: null,
+            ai_provider: 'gemini',
+            ai_code: 'GE',
+            is_superscan: Boolean(isSuperScan),
           });
         }
 
@@ -461,7 +465,7 @@ RULES:
 
         return res.json({
           is_leaf: true,
-          confidence: 96.5,
+          confidence: 97.5,
           disease: diseaseName,
           crop: cropName || '',
           treatment_en: parsed.en_points || [
@@ -479,6 +483,7 @@ RULES:
           info,
           ai_provider: 'gemini',
           ai_code: 'GE',
+          is_superscan: Boolean(isSuperScan),
         });
       } catch (geminiError) {
         console.warn('Gemini diagnosis failed, attempting Groq fallback:', geminiError);
@@ -535,6 +540,7 @@ RULES:
                 info: null,
                 ai_provider: 'groq',
                 ai_code: 'GQ',
+                is_superscan: Boolean(isSuperScan),
               });
             }
 
@@ -543,7 +549,7 @@ RULES:
 
             return res.json({
               is_leaf: true,
-              confidence: 95.5,
+              confidence: 96.0,
               disease: diseaseName,
               crop: cropName || '',
               treatment_en: parsed.en_points || [
@@ -561,6 +567,7 @@ RULES:
               info,
               ai_provider: 'groq',
               ai_code: 'GQ',
+              is_superscan: Boolean(isSuperScan),
             });
           }
         } else {
@@ -570,6 +577,14 @@ RULES:
       } catch (groqError) {
         console.warn('Groq AI fallback failed:', groqError);
       }
+    }
+
+    // If user explicitly chose SuperScan, DO NOT fall back to TFLite!
+    if (isSuperScan) {
+      return res.status(503).json({
+        error: 'superscan_unavailable',
+        message: 'SuperScan cloud models (Gemini / Groq) are currently unreachable. Credits were not deducted. Please retry or use Standard Scan.',
+      });
     }
 
     // High quality offline fallback with agronomic pathology knowledge base / TFLite
@@ -605,6 +620,7 @@ RULES:
       info,
       ai_provider: 'tflite',
       ai_code: 'TLITE',
+      is_superscan: false,
     });
   } catch (error) {
     return res.status(500).json({ error: 'Diagnosis failed', details: String(error) });
