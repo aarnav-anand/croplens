@@ -263,12 +263,12 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str,
     confidence = 96.5
 
     if gemini_key:
-        for gm_model in ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"]:
+        for gm_model in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
             try:
                 buf = io.BytesIO()
                 image.convert("RGB").save(buf, format="JPEG", quality=85)
                 b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{gm_model}:generateContent?key={gemini_key}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{gm_model}:generateContent?key={gemini_key.strip()}"
                 prompt = (
                     f"You are a plant pathologist. The crop is {crop_name or 'Crop'}. "
                     "Diagnose the leaf disease in this format:\n"
@@ -293,7 +293,7 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str,
 
     # Groq Vision Multimodal Fallback
     if not disease and groq_key:
-        for gq_model in ["llama-3.2-11b-vision-preview", "qwen/qwen3.8-27b"]:
+        for gq_model in ["llama-3.2-11b-vision-preview", "llama-3.2-90b-vision-preview"]:
             try:
                 buf = io.BytesIO()
                 image.convert("RGB").save(buf, format="JPEG", quality=85)

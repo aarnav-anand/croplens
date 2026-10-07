@@ -15,6 +15,7 @@ interface DiagnosisResult {
   ai_provider?: string;
   ai_code?: 'TLITE' | 'GE' | 'GQ' | string;
   is_superscan?: boolean;
+  is_superscan_fallback?: boolean;
 }
 
 interface OutbreakReportItem {
@@ -201,6 +202,7 @@ export function App() {
           imageBase64: imageSrc,
           cropName: cropInput.trim(),
           isSuperScan,
+          allowTfliteFallback: true,
         }),
       });
 
@@ -213,12 +215,13 @@ export function App() {
 
       setDiagnosis(data);
 
-      if (data.is_leaf && farmerCredits !== null && farmerCredits >= creditsNeeded && farmerDif) {
-        // Decrement credits on successful leaf diagnosis (2 for SuperScan, 1 for Standard)
+      if (data.is_leaf && farmerCredits !== null && farmerCredits > 0 && farmerDif) {
+        // If SuperScan fell back to TFLite, only charge 1 credit instead of 2!
+        const actualDeductAmount = (isSuperScan && !data.is_superscan_fallback) ? 2 : 1;
         const decRes = await fetch('/api/farmer/decrement', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dif_code: farmerDif, amount: creditsNeeded }),
+          body: JSON.stringify({ dif_code: farmerDif, amount: actualDeductAmount }),
         });
         const decData = await decRes.json();
         if (decData.credits !== undefined) {
@@ -334,8 +337,8 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0F172A] text-slate-100 flex flex-col items-center">
-      <main className="w-full max-w-[740px] px-4 py-6 space-y-5">
+    <div className="min-h-screen bg-[#0F172A] text-slate-100 flex flex-col items-center w-full max-w-full overflow-x-hidden">
+      <main className="w-full max-w-[740px] px-3 sm:px-4 py-4 sm:py-6 space-y-4 sm:space-y-5 overflow-x-hidden">
         {/* Header & Language selector */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-800">
           <div>
@@ -585,20 +588,20 @@ export function App() {
                       </div>
 
                       {/* Scan Mode Selector: Standard Scan (1 credit) vs SuperScan (2 credits) */}
-                      <div className="pt-1">
-                        <div className="grid grid-cols-2 gap-2 p-1 bg-slate-950/70 border border-slate-800 rounded-xl">
+                      <div className="pt-1 w-full">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-1 bg-slate-950/70 border border-slate-800 rounded-xl w-full">
                           <button
                             type="button"
                             onClick={() => setIsSuperScan(false)}
-                            className={`py-2 px-3 rounded-lg text-left transition-all flex flex-col justify-center ${
+                            className={`py-2 px-3 rounded-lg text-left transition-all flex flex-col justify-center min-w-0 ${
                               !isSuperScan
                                 ? 'bg-slate-800/90 border border-emerald-500/40 text-white shadow-sm'
                                 : 'text-slate-400 hover:text-slate-200 border border-transparent'
                             }`}
                           >
-                            <div className="flex items-center justify-between w-full">
-                              <span className="text-xs font-bold text-slate-200">{t.standard_scan_label}</span>
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700/60 font-mono text-emerald-400 font-semibold">1 Credit</span>
+                            <div className="flex items-center justify-between gap-1.5 w-full">
+                              <span className="text-xs font-bold text-slate-200 truncate">{t.standard_scan_label}</span>
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-slate-700/60 font-mono text-emerald-400 font-semibold shrink-0 whitespace-nowrap">1 Credit</span>
                             </div>
                             <span className="text-[11px] text-slate-400 mt-0.5 leading-tight">{t.standard_scan_desc}</span>
                           </button>
@@ -612,37 +615,37 @@ export function App() {
                               }
                               setIsSuperScan(true);
                             }}
-                            className={`py-2 px-3 rounded-lg text-left transition-all flex flex-col justify-center relative overflow-hidden ${
+                            className={`py-2 px-3 rounded-lg text-left transition-all flex flex-col justify-center relative overflow-hidden min-w-0 ${
                               isSuperScan
                                 ? 'bg-gradient-to-r from-amber-950/80 to-orange-950/80 border border-amber-500/60 text-white shadow-md shadow-amber-950/40'
                                 : 'text-slate-400 hover:text-slate-200 border border-transparent'
                             }`}
                           >
-                            <div className="flex items-center justify-between w-full">
-                              <span className="text-xs font-extrabold text-amber-300 flex items-center gap-1">
-                                <span>⚡</span>
-                                <span>{t.superscan_label}</span>
+                            <div className="flex items-center justify-between gap-1.5 w-full">
+                              <span className="text-xs font-extrabold text-amber-300 flex items-center gap-1 min-w-0">
+                                <span className="shrink-0">⚡</span>
+                                <span className="truncate">{t.superscan_label}</span>
                               </span>
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 font-mono text-amber-300 font-bold">2 Credits</span>
+                              <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/40 font-mono text-amber-300 font-bold shrink-0 whitespace-nowrap">2 Credits</span>
                             </div>
                             <span className="text-[11px] text-amber-200/70 mt-0.5 leading-tight">{t.superscan_desc}</span>
                           </button>
                         </div>
                       </div>
 
-                      <div className="flex gap-2 pt-1">
+                      <div className="flex flex-col sm:flex-row gap-2 pt-1 w-full">
                         <input
                           type="text"
                           value={cropInput}
                           onChange={(e) => setCropInput(e.target.value)}
                           placeholder={t.crop_placeholder}
-                          className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          className="w-full sm:flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         />
                         <button
                           type="button"
                           onClick={handleAnalyze}
                           disabled={isAnalyzing || !cropInput.trim()}
-                          className={`px-5 py-2.5 text-white font-semibold rounded-xl text-sm flex items-center gap-2 transition-all shadow-lg disabled:opacity-50 ${
+                          className={`w-full sm:w-auto shrink-0 justify-center px-5 py-2.5 text-white font-semibold rounded-xl text-sm flex items-center gap-2 transition-all shadow-lg disabled:opacity-50 ${
                             isSuperScan
                               ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 shadow-amber-950/50'
                               : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-950/40'
@@ -684,20 +687,20 @@ export function App() {
                   <div className="space-y-4">
                     {/* Diagnosis Headline Banner */}
                     <div className="bg-slate-900/90 border border-emerald-500/40 rounded-2xl p-4 sm:p-5 space-y-3 shadow-xl">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <span className="text-xs uppercase font-bold tracking-wider text-emerald-400 flex items-center gap-1.5 shrink-0">
                           <Sparkles className="w-3.5 h-3.5" />
                           {t.diagnosis_title}
                         </span>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                           {diagnosis.is_superscan && (
-                            <span className="px-2 py-0.5 rounded text-[11px] font-extrabold uppercase bg-amber-500/20 border border-amber-500/60 text-amber-300 shadow-sm flex items-center gap-1">
+                            <span className="px-2 py-0.5 rounded text-[11px] font-extrabold uppercase bg-amber-500/20 border border-amber-500/60 text-amber-300 shadow-sm flex items-center gap-1 shrink-0">
                               <span>⚡</span>
                               <span>SuperScan</span>
                             </span>
                           )}
                           <span
-                            className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold tracking-wider uppercase border shadow-sm ${
+                            className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold tracking-wider uppercase border shadow-sm shrink-0 ${
                               (diagnosis.ai_code === 'GE' || (!diagnosis.ai_code && diagnosis.ai_provider?.includes('primary')))
                                 ? 'bg-blue-950/60 border-blue-500/40 text-blue-300'
                                 : (diagnosis.ai_code === 'GQ' || diagnosis.ai_provider?.includes('secondary'))
@@ -714,7 +717,7 @@ export function App() {
                           >
                             {diagnosis.ai_code || (diagnosis.ai_provider === 'groq' ? 'GQ' : 'GE')}
                           </span>
-                          <span className="text-xs text-slate-400">
+                          <span className="text-xs text-slate-400 shrink-0">
                             {t.confidence_label}: <span className="text-white font-semibold">{diagnosis.confidence.toFixed(1)}%</span>
                           </span>
                         </div>
@@ -965,7 +968,7 @@ export function App() {
         {/* FOOTER */}
         <footer className="pt-6 pb-4 border-t border-slate-800/80 text-center space-y-2 text-xs text-slate-500">
           <div>
-            🌱 CropLens AI Crop Doctor · Powered by Gemini Multimodal Vision & Plant Pathology Knowledge Base
+            🌱 CropLens AI Crop Doctor · Powered by Advanced DL Model & Plant Pathology Knowledge Base
           </div>
           <div>
             <button

@@ -382,24 +382,33 @@ function parseAiResponse(text: string) {
 
 // Helper to run Cloud AI diagnosis (Gemini first, then Groq)
 async function runCloudDiagnosis(cleanB64: string, prompt: string, cropName: string, isSuperScan: boolean) {
-  let engine1ErrorMsg: string | null = geminiApiKey ? null : 'GEMINI_API_KEY is not configured';
-  let engine2ErrorMsg: string | null = groqApiKey ? null : 'GROQ_API_KEY is not configured';
+  const rawGemini = process.env.GEMINI_API_KEY || geminiApiKey || '';
+  const cleanGeminiKey = rawGemini.trim().replace(/^["']|["']$/g, '');
 
-  // 1. Attempt Gemini (Try solid models: 1.5-flash first for rock-solid availability, then 2.5-flash, 2.0-flash, 1.5-pro)
-  if (geminiApiKey) {
-    const candidateModels = ['gemini-1.5-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'];
+  const rawGroq = process.env.GROQ_API_KEY || groqApiKey || '';
+  const cleanGroqKey = rawGroq.trim().replace(/^["']|["']$/g, '');
+
+  let engine1ErrorMsg: string | null = cleanGeminiKey ? null : 'Advanced DL Model (Engine 1: GE) key is not configured';
+  let engine2ErrorMsg: string | null = cleanGroqKey ? null : 'Advanced DL Model (Engine 2: GQ) key is not configured';
+
+  const sanitizedB64 = cleanB64.replace(/\s+/g, '');
+
+  // 1. Attempt Advanced DL Model — Engine 1 [GE] (Gemini: 3.8-flash, 2.5-flash, 3.1-flash-lite, 2.0-flash, 1.5-flash)
+  if (cleanGeminiKey) {
+    const candidateModels = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-3.1-flash-lite', 'gemini-2.0-flash', 'gemini-1.5-flash'];
     for (const m of candidateModels) {
       try {
-        console.log(`🌿 Querying Gemini model: ${m}...`);
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${geminiApiKey}`;
+        console.log(`🌿 Querying Advanced DL Model (Engine 1: ${m})...`);
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${cleanGeminiKey}`;
         const resp = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(8000),
           body: JSON.stringify({
             contents: [
               {
                 parts: [
-                  { inlineData: { mimeType: 'image/jpeg', data: cleanB64 } },
+                  { inlineData: { mimeType: 'image/jpeg', data: sanitizedB64 } },
                   { text: prompt },
                 ],
               },
@@ -428,6 +437,7 @@ async function runCloudDiagnosis(cleanB64: string, prompt: string, cropName: str
                   ai_provider: 'gemini',
                   ai_code: 'GE',
                   is_superscan: Boolean(isSuperScan),
+                  is_superscan_fallback: false,
                 },
               };
             }
@@ -456,33 +466,35 @@ async function runCloudDiagnosis(cleanB64: string, prompt: string, cropName: str
                 ai_provider: 'gemini',
                 ai_code: 'GE',
                 is_superscan: Boolean(isSuperScan),
+                is_superscan_fallback: false,
               },
             };
           }
         } else {
           const errBody = await resp.text();
-          engine1ErrorMsg = `Gemini ${m} (HTTP ${resp.status}): ${errBody}`;
-          console.warn(`Gemini model ${m} returned error:`, resp.status, errBody);
+          engine1ErrorMsg = `Engine 1 (${m}, HTTP ${resp.status}): ${errBody}`;
+          console.warn(`Engine 1 model ${m} error:`, resp.status, errBody);
         }
       } catch (err: any) {
-        engine1ErrorMsg = `Gemini ${m}: ${err?.message || String(err)}`;
-        console.warn(`Gemini model ${m} threw error:`, err?.message || err);
+        engine1ErrorMsg = `Engine 1 (${m}): ${err?.message || String(err)}`;
+        console.warn(`Engine 1 model ${m} exception:`, err?.message || err);
       }
     }
   }
 
-  // 2. Attempt Groq Vision (Active vision models: llama-3.2-11b-vision-preview and qwen/qwen3.8-27b)
-  if (groqApiKey) {
-    const groqModels = ['llama-3.2-11b-vision-preview', 'qwen/qwen3.8-27b'];
+  // 2. Attempt Advanced DL Model — Engine 2 [GQ] (Groq Vision: llama-3.2-11b-vision-preview, llama-3.2-90b-vision-preview)
+  if (cleanGroqKey) {
+    const groqModels = ['llama-3.2-11b-vision-preview', 'llama-3.2-90b-vision-preview'];
     for (const gm of groqModels) {
       try {
-        console.log(`🔄 Querying Groq vision model: ${gm}...`);
+        console.log(`🔄 Querying Advanced DL Model (Engine 2: ${gm})...`);
         const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${groqApiKey}`,
+            'Authorization': `Bearer ${cleanGroqKey}`,
             'Content-Type': 'application/json',
           },
+          signal: AbortSignal.timeout(8000),
           body: JSON.stringify({
             model: gm,
             messages: [
@@ -490,7 +502,7 @@ async function runCloudDiagnosis(cleanB64: string, prompt: string, cropName: str
                 role: 'user',
                 content: [
                   { type: 'text', text: prompt },
-                  { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${cleanB64}` } },
+                  { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${sanitizedB64}` } },
                 ],
               },
             ],
@@ -516,6 +528,7 @@ async function runCloudDiagnosis(cleanB64: string, prompt: string, cropName: str
                   ai_provider: 'groq',
                   ai_code: 'GQ',
                   is_superscan: Boolean(isSuperScan),
+                  is_superscan_fallback: false,
                 },
               };
             }
@@ -544,17 +557,18 @@ async function runCloudDiagnosis(cleanB64: string, prompt: string, cropName: str
                 ai_provider: 'groq',
                 ai_code: 'GQ',
                 is_superscan: Boolean(isSuperScan),
+                is_superscan_fallback: false,
               },
             };
           }
         } else {
           const errText = await groqRes.text();
-          engine2ErrorMsg = `Groq ${gm} (HTTP ${groqRes.status}): ${errText}`;
-          console.warn(`Groq ${gm} returned error:`, groqRes.status, errText);
+          engine2ErrorMsg = `Engine 2 (${gm}, HTTP ${groqRes.status}): ${errText}`;
+          console.warn(`Engine 2 model ${gm} error:`, groqRes.status, errText);
         }
       } catch (err: any) {
-        engine2ErrorMsg = `Groq ${gm}: ${err?.message || String(err)}`;
-        console.warn(`Groq ${gm} threw error:`, err?.message || err);
+        engine2ErrorMsg = `Engine 2 (${gm}): ${err?.message || String(err)}`;
+        console.warn(`Engine 2 model ${gm} exception:`, err?.message || err);
       }
     }
   }
@@ -565,7 +579,7 @@ async function runCloudDiagnosis(cleanB64: string, prompt: string, cropName: str
 // Diagnosis endpoint
 app.post('/api/diagnose', async (req, res) => {
   try {
-    const { imageBase64, cropName, isSuperScan } = req.body;
+    const { imageBase64, cropName, isSuperScan, allowTfliteFallback = true } = req.body;
     if (!imageBase64) {
       return res.status(400).json({ error: 'Missing imageBase64' });
     }
@@ -603,7 +617,7 @@ RULES:
 - Do not add any text outside this format.`;
 
     // 1. SUPERSCAN MODE:
-    // Directly consults Gemini and Groq (if needed), skipping TFLite entirely.
+    // Directly consults Gemini and Groq (if needed), skipping TFLite initially.
     if (isSuperScan) {
       console.log('⚡ Running SuperScan: Directly consulting Cloud Advanced DL Models (Gemini / Groq)...');
       const cloud = await runCloudDiagnosis(cleanB64, prompt, cropName, true);
@@ -611,22 +625,27 @@ RULES:
         return res.json(cloud.result);
       }
 
-      // If both Gemini and Groq failed:
-      return res.status(503).json({
-        error: 'superscan_unavailable',
-        message: `Advanced DL Model cloud inference is currently unreachable.
+      // If both Gemini and Groq failed and user disabled TFLite fallback:
+      if (!allowTfliteFallback) {
+        return res.status(503).json({
+          error: 'superscan_unavailable',
+          message: `Advanced DL Model cloud inference is currently unreachable.
 - Engine 1: ${cloud.error?.engine1ErrorMsg || 'not attempted'}
 - Engine 2: ${cloud.error?.engine2ErrorMsg || 'not attempted'}
 Tip: If you recently added or updated keys in Vercel, please trigger a Redeployment on Vercel for them to take effect. Credits were not deducted.`,
-        diagnostics: {
-          engine_1: cloud.error?.engine1ErrorMsg,
-          engine_2: cloud.error?.engine2ErrorMsg,
-          keys_configured: {
-            engine_1: Boolean(geminiApiKey),
-            engine_2: Boolean(groqApiKey),
+          diagnostics: {
+            engine_1: cloud.error?.engine1ErrorMsg,
+            engine_2: cloud.error?.engine2ErrorMsg,
+            keys_configured: {
+              engine_1: Boolean(geminiApiKey),
+              engine_2: Boolean(groqApiKey),
+            },
           },
-        },
-      });
+        });
+      }
+
+      console.warn('⚠️ SuperScan cloud models unreachable. Applying TFLite fallback as requested by settings...');
+      // Fall through to TFLite inference below, but mark is_superscan_fallback: true!
     }
 
     // 2. STANDARD SCAN MODE:
@@ -675,7 +694,8 @@ Tip: If you recently added or updated keys in Vercel, please trigger a Redeploym
       info,
       ai_provider: 'tflite',
       ai_code: 'TLITE',
-      is_superscan: false,
+      is_superscan: Boolean(isSuperScan),
+      is_superscan_fallback: Boolean(isSuperScan),
     });
   } catch (error) {
     return res.status(500).json({ error: 'Diagnosis failed', details: String(error) });

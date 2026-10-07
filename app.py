@@ -22,6 +22,26 @@ import numpy as np
 from PIL import Image
 import gradio as gr
 
+# If opened via Streamlit Community Cloud (croplens.streamlit.app), redirect directly to croplens-web.vercel.app
+try:
+    import streamlit as _st
+    if hasattr(_st, "runtime") and _st.runtime.exists():
+        _st.set_page_config(page_title="Redirecting to CropLens...", page_icon="🌱")
+        _st.markdown(
+            """
+            <meta http-equiv="refresh" content="0; url=https://croplens-web.vercel.app">
+            <script>window.location.replace("https://croplens-web.vercel.app");</script>
+            <div style="text-align: center; padding: 40px; font-family: system-ui, sans-serif;">
+                <h2 style="color: #059669;">🌱 Redirecting to CropLens...</h2>
+                <p>CropLens has moved to <a href="https://croplens-web.vercel.app" style="font-weight: bold; color: #10b981;">https://croplens-web.vercel.app</a></p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        _st.stop()
+except Exception:
+    pass
+
 # Hugging Face ZeroGPU support
 try:
     import spaces
@@ -263,12 +283,12 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str,
     confidence = 96.5
 
     if gemini_key:
-        for gm_model in ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-2.0-flash"]:
+        for gm_model in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]:
             try:
                 buf = io.BytesIO()
                 image.convert("RGB").save(buf, format="JPEG", quality=85)
                 b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{gm_model}:generateContent?key={gemini_key}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{gm_model}:generateContent?key={gemini_key.strip()}"
                 prompt = (
                     f"You are a plant pathologist. The crop is {crop_name or 'Crop'}. "
                     "Diagnose the leaf disease in this format:\n"
@@ -293,7 +313,7 @@ def _run_diagnosis(image: Image.Image, crop_name: str, dif_code: str, lang: str,
 
     # Groq Vision Multimodal Fallback
     if not disease and groq_key:
-        for gq_model in ["llama-3.2-11b-vision-preview", "qwen/qwen3.8-27b"]:
+        for gq_model in ["llama-3.2-11b-vision-preview", "llama-3.2-90b-vision-preview"]:
             try:
                 buf = io.BytesIO()
                 image.convert("RGB").save(buf, format="JPEG", quality=85)
