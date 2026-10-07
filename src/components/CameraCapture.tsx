@@ -13,6 +13,8 @@ interface CameraCaptureProps {
 
 export const CameraCapture: React.FC<CameraCaptureProps> = ({ onCapture, onClose, t }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const guideRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [capturedImg, setCapturedImg] = useState<string | null>(null);
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
@@ -57,13 +59,60 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({ onCapture, onClose
 
   const snapPhoto = () => {
     if (!videoRef.current) return;
+    const video = videoRef.current;
+    const vw = video.videoWidth || 640;
+    const vh = video.videoHeight || 480;
+
+    let cropX = 0;
+    let cropY = 0;
+    let cropW = vw;
+    let cropH = vh;
+
+    // Calculate exact coordinates corresponding to the green dotted guide frame
+    if (containerRef.current && guideRef.current) {
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const guideRect = guideRef.current.getBoundingClientRect();
+
+      const cw = containerRect.width;
+      const ch = containerRect.height;
+
+      if (cw > 0 && ch > 0 && vw > 0 && vh > 0) {
+        // Since the video uses `object-cover`, compute the rendered scale and letterbox/crop offset
+        const scale = Math.max(cw / vw, ch / vh);
+        const scaledW = vw * scale;
+        const scaledH = vh * scale;
+        const offsetX = (scaledW - cw) / 2;
+        const offsetY = (scaledH - ch) / 2;
+
+        const gx = guideRect.left - containerRect.left;
+        const gy = guideRect.top - containerRect.top;
+        const gw = guideRect.width;
+        const gh = guideRect.height;
+
+        cropX = Math.max(0, (gx + offsetX) / scale);
+        cropY = Math.max(0, (gy + offsetY) / scale);
+        cropW = Math.min(vw - cropX, gw / scale);
+        cropH = Math.min(vh - cropY, gh / scale);
+      }
+    }
+
     const canvas = document.createElement('canvas');
-    canvas.width = videoRef.current.videoWidth || 640;
-    canvas.height = videoRef.current.videoHeight || 480;
+    canvas.width = Math.round(cropW);
+    canvas.height = Math.round(cropH);
     const ctx = canvas.getContext('2d');
     if (ctx) {
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+      ctx.drawImage(
+        video,
+        Math.round(cropX),
+        Math.round(cropY),
+        Math.round(cropW),
+        Math.round(cropH),
+        0,
+        0,
+        Math.round(cropW),
+        Math.round(cropH)
+      );
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
       setCapturedImg(dataUrl);
     }
   };
@@ -115,7 +164,10 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({ onCapture, onClose
       {error ? (
         <div className="p-6 text-center text-amber-400 text-sm">{error}</div>
       ) : (
-        <div className="relative aspect-[4/3] max-h-[380px] w-full bg-black rounded-xl overflow-hidden flex items-center justify-center">
+        <div
+          ref={containerRef}
+          className="relative aspect-[4/3] max-h-[380px] w-full bg-black rounded-xl overflow-hidden flex items-center justify-center"
+        >
           {capturedImg ? (
             <img src={capturedImg} alt="Captured preview" className="w-full h-full object-contain" />
           ) : (
@@ -128,10 +180,13 @@ export const CameraCapture: React.FC<CameraCaptureProps> = ({ onCapture, onClose
             />
           )}
 
-          {/* Guide Overlay */}
+          {/* Guide Overlay with Viewfinder Mask */}
           {!capturedImg && (
-            <div className="absolute inset-8 border-2 border-dashed border-emerald-400/40 rounded-2xl pointer-events-none flex items-center justify-center">
-              <span className="text-xs bg-slate-900/80 text-emerald-300 px-3 py-1 rounded-full border border-emerald-500/20">
+            <div
+              ref={guideRef}
+              className="absolute inset-8 border-2 border-dashed border-emerald-400/80 rounded-2xl pointer-events-none flex items-center justify-center shadow-[0_0_0_9999px_rgba(0,0,0,0.45)]"
+            >
+              <span className="text-xs bg-slate-900/90 text-emerald-300 px-3 py-1 rounded-full border border-emerald-500/30 backdrop-blur-sm shadow-md">
                 Center leaf inside frame
               </span>
             </div>
