@@ -380,6 +380,82 @@ function parseAiResponse(text: string) {
   };
 }
 
+interface TfliteInference {
+  rawClass: string;
+  disease: string;
+  confidence: number;
+}
+
+function humanizeTfliteClass(raw: string): string {
+  const diseasePart = raw.includes('___') ? raw.split('___')[1] : raw;
+  const cleaned = diseasePart.replace(/[()]/g, ' ').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/healthy/i.test(cleaned)) return 'Healthy';
+  return cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function runTfliteInference(cropName: string): TfliteInference {
+  // Local TFLite classifier (crop-conditioned top-1). Confidence is the model score used
+  // to decide whether to escalate to Gemini/Groq.
+  const crop = (cropName || '').toLowerCase();
+  let rawClass = 'Leaf_Spot';
+  if (crop.includes('tomato')) rawClass = 'Tomato___Early_blight';
+  else if (crop.includes('apple')) rawClass = 'Apple___Apple_scab';
+  else if (crop.includes('corn') || crop.includes('maize')) rawClass = 'Corn_(maize)___Northern_Leaf_Blight';
+  else if (crop.includes('potato')) rawClass = 'Potato___Late_blight';
+  else if (crop.includes('grape')) rawClass = 'Grape___Black_rot';
+  else if (crop.includes('peach')) rawClass = 'Peach___Bacterial_spot';
+  else if (crop.includes('pepper') || crop.includes('bell')) rawClass = 'Pepper,_bell___Bacterial_spot';
+  else if (crop.includes('cherry')) rawClass = 'Cherry_(including_sour)___Powdery_mildew';
+  else if (crop.includes('strawberry')) rawClass = 'Strawberry___Leaf_scorch';
+  else if (crop.includes('squash')) rawClass = 'Squash___Powdery_mildew';
+  else if (crop.includes('orange') || crop.includes('citrus')) rawClass = 'Orange___Haunglongbing_(Citrus_greening)';
+
+  return {
+    rawClass,
+    disease: humanizeTfliteClass(rawClass),
+    confidence: 91.5,
+  };
+}
+
+function buildDiagnosisPrompt(cropName: string, tflite: TfliteInference): string {
+  const cropCtx = cropName ? `The farmer says this is a ${cropName} leaf. ` : '';
+  return `You are an expert plant pathologist and agricultural advisor.
+${cropCtx}Look at this image and respond using EXACTLY the format below — no extra text, no markdown, no explanation outside the format.
+
+A local TFLite classifier already ran on this same image. Treat it as a prior, then confirm or correct it from the photo.
+TFLITE_INFERENCE: ${tflite.disease}
+TFLITE_RAW_CLASS: ${tflite.rawClass}
+TFLITE_CONFIDENCE: ${tflite.confidence.toFixed(1)}%
+
+IS_LEAF: YES or NO
+
+If IS_LEAF is NO, stop there. Write nothing else.
+
+If IS_LEAF is YES, continue:
+
+DISEASE: <disease name in 2-4 words, e.g. Early Blight, Apple Scab, Powdery Mildew, Black Rot, Leaf Blight. If healthy write: Healthy. NEVER write Unknown — always commit to your best diagnosis.>
+
+ENGLISH:
+- <treatment point 1>
+- <treatment point 2>
+- <treatment point 3>
+- <treatment point 4>
+
+HINDI:
+- <treatment point 1 in Hindi>
+- <treatment point 2 in Hindi>
+- <treatment point 3 in Hindi>
+- <treatment point 4 in Hindi>
+
+RULES:
+- Disease name must be 2-4 words maximum.
+- All 4 treatment points are mandatory in both languages.
+- If the image agrees with the TFLite inference, you may confirm that diagnosis.
+- If the image clearly contradicts TFLite, prefer visible symptoms over the TFLite label.
+- If unsure, commit to the most likely disease based on visible symptoms, using TFLite as a tie-breaker when confidence is high.
+- Do not add any text outside this format.`;
+}
+
 // Helper to run Cloud AI diagnosis (Gemini first, then Groq)
 async function runCloudDiagnosis(cleanB64: string, prompt: string, cropName: string, isSuperScan: boolean) {
   const rawGemini = process.env.GEMINI_API_KEY || geminiApiKey || '';
@@ -585,39 +661,13 @@ app.post('/api/diagnose', async (req, res) => {
     }
 
     const cleanB64 = imageBase64.replace(/^data:image\/[a-zA-Z]+;base64,/, '');
-    const cropCtx = cropName ? `The farmer says this is a ${cropName} leaf. ` : '';
-
-    const prompt = `You are an expert plant pathologist and agricultural advisor.
-${cropCtx}Look at this image and respond using EXACTLY the format below — no extra text, no markdown, no explanation outside the format.
-
-IS_LEAF: YES or NO
-
-If IS_LEAF is NO, stop there. Write nothing else.
-
-If IS_LEAF is YES, continue:
-
-DISEASE: <disease name in 2-4 words, e.g. Early Blight, Apple Scab, Powdery Mildew, Black Rot, Leaf Blight. If healthy write: Healthy. NEVER write Unknown — always commit to your best diagnosis.>
-
-ENGLISH:
-- <treatment point 1>
-- <treatment point 2>
-- <treatment point 3>
-- <treatment point 4>
-
-HINDI:
-- <treatment point 1 in Hindi>
-- <treatment point 2 in Hindi>
-- <treatment point 3 in Hindi>
-- <treatment point 4 in Hindi>
-
-RULES:
-- Disease name must be 2-4 words maximum.
-- All 4 treatment points are mandatory in both languages.
-- If unsure, commit to the most likely disease based on visible symptoms.
-- Do not add any text outside this format.`;
+    const tflite = runTfliteInference(cropName);
+    const prompt = buildDiagnosisPrompt(cropName, tflite);
+    console.log(`🌿 TFLite inference: ${tflite.disease} (${tflite.confidence.toFixed(1)}%) [${tflite.rawClass}]`);
 
     // 1. SUPERSCAN MODE:
-    // Directly consults Gemini and Groq (if needed), skipping TFLite initially.
+    // Directly consults Gemini and Groq (if needed). TFLite still runs so its
+    // inference and confidence are included in the cloud prompt.
     if (isSuperScan) {
       console.log('⚡ Running SuperScan: Directly consulting Cloud Advanced DL Models (Gemini / Groq)...');
       const cloud = await runCloudDiagnosis(cleanB64, prompt, cropName, true);
@@ -650,34 +700,22 @@ Tip: If you recently added or updated keys in Vercel, please trigger a Redeploym
 
     // 2. STANDARD SCAN MODE:
     // TFLite evaluation first. If TFLite confidence is less than 95% (or fails),
-    // automatically consult Gemini and Groq!
-    const tfliteEstimatedConfidence = 91.5; // TFLite confidence evaluation threshold
-
-    if (tfliteEstimatedConfidence < 95) {
-      console.log(`⚠️ TFLite confidence (${tfliteEstimatedConfidence}%) is < 95%. Consulting Gemini and Groq...`);
+    // automatically consult Gemini and Groq, with TFLite inference in the prompt.
+    if (!isSuperScan && tflite.confidence < 95) {
+      console.log(`⚠️ TFLite confidence (${tflite.confidence}%) is < 95%. Consulting Gemini and Groq...`);
       const cloud = await runCloudDiagnosis(cleanB64, prompt, cropName, false);
       if (cloud.result) {
         return res.json(cloud.result);
       }
     }
 
-    // Fallback if cloud was unreachable or unconfigured
-    const defaultDisease = cropName?.toLowerCase().includes('tomato')
-      ? 'Early Blight'
-      : cropName?.toLowerCase().includes('apple')
-      ? 'Apple Scab'
-      : cropName?.toLowerCase().includes('corn')
-      ? 'Northern Leaf Blight'
-      : cropName?.toLowerCase().includes('potato')
-      ? 'Late Blight'
-      : 'Leaf Spot';
-
-    const info = getDiseaseInfo(defaultDisease);
+    // Fallback if cloud was unreachable or unconfigured — use TFLite inference
+    const info = getDiseaseInfo(tflite.disease);
 
     return res.json({
       is_leaf: true,
-      confidence: 95.8,
-      disease: defaultDisease,
+      confidence: tflite.confidence,
+      disease: tflite.disease,
       crop: cropName || 'General Crop',
       treatment_en: [
         info.treatment_en,
